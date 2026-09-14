@@ -11,8 +11,10 @@ let contacts = [];   // Array of { id, username, keyB64, keyObject }
 let activeContact = null;
 let ws = null;
 let html5QrScanner = null;
+let audioContext = null;
 
-// --- UTILITY: TOAST NOTIFICATIONS ---
+// --- UTILITY: TOAST NOTIFICATIONS & AUDIO FEEDBACK ---
+
 function showToast(message) {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -22,7 +24,41 @@ function showToast(message) {
   container.appendChild(toast);
   setTimeout(() => {
     if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, 3000);
+  }, 3200);
+}
+
+function playSoundFeedback(type) {
+  try {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+
+    const now = audioContext.currentTime;
+    if (type === 'send') {
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'receive') {
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(587.33, now + 0.15);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    }
+  } catch (e) {
+    // Audio context not allowed without prior user interaction
+  }
 }
 
 // --- WEBCRYPTO FUNCTIONS ---
@@ -200,7 +236,7 @@ function clearSession() {
   location.reload();
 }
 
-// UI Elements
+// DOM Elements
 const setupScreen = document.getElementById('setup-screen');
 const unlockScreen = document.getElementById('unlock-screen');
 const chatScreen = document.getElementById('chat-screen');
@@ -217,6 +253,7 @@ const unlockStatus = document.getElementById('unlock-status');
 const unlockUserTagline = document.getElementById('unlock-user-tagline');
 
 const logoutBtn = document.getElementById('logout-btn');
+const mobileLogoutBtn = document.getElementById('mobile-logout-btn');
 const myAvatar = document.getElementById('my-avatar');
 const myUsernameEl = document.getElementById('my-username');
 const myIdEl = document.getElementById('my-id');
@@ -237,6 +274,7 @@ const emptyState = document.getElementById('empty-state');
 const activeAvatar = document.getElementById('active-avatar');
 const activeContactName = document.getElementById('active-contact-name');
 const messagesContainer = document.getElementById('messages-container');
+const typingIndicator = document.getElementById('typing-indicator');
 const sendMessageForm = document.getElementById('send-message-form');
 const messageInput = document.getElementById('message-input');
 
@@ -287,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       saveSessionIdentity(username, id, pubKeyB64, encryptedPrivateKeyData);
       initMainChatUI();
-      showToast("Identity & Schlüssel erfolgreich erstellt");
+      showToast("Identität & Keys erfolgreich erstellt");
     } catch (e) {
       console.error(e);
       setupStatus.textContent = 'Fehler beim Erstellen der Schlüssel.';
@@ -334,11 +372,8 @@ document.addEventListener('DOMContentLoaded', () => {
     clearSession();
   });
 
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      clearSession();
-    });
-  }
+  if (logoutBtn) logoutBtn.addEventListener('click', clearSession);
+  if (mobileLogoutBtn) mobileLogoutBtn.addEventListener('click', clearSession);
 });
 
 function checkSessionState() {
@@ -371,7 +406,7 @@ function initMainChatUI() {
 }
 
 function setupEventListeners() {
-  // Mobile sidebar toggle
+  // Mobile sidebar navigation
   if (mobileToggleBtn) {
     mobileToggleBtn.addEventListener('click', () => {
       sidebar.classList.toggle('mobile-hidden');
@@ -392,12 +427,12 @@ function setupEventListeners() {
       user: identity.username,
       key: identity.pubKeyB64
     });
-    
+
     navigator.clipboard.writeText(exportData);
     showToast("Einladungscode in Zwischenablage kopiert");
   });
 
-  // Single Input Auto-Parser for Invites
+  // Automatic Single Input Invite Parser
   singleInviteInput.addEventListener('input', () => {
     const val = singleInviteInput.value.trim();
     if (!val) return;
@@ -407,7 +442,6 @@ function setupEventListeners() {
       if (val.startsWith('{')) {
         parsed = JSON.parse(val);
       } else {
-        // Try Base64 encoded JSON
         try {
           parsed = JSON.parse(atob(val));
         } catch (err) {}
@@ -457,7 +491,7 @@ function setupEventListeners() {
     }
   });
 
-  // Show QR Modal Handler
+  // Show QR Code Modal
   showQrBtn.addEventListener('click', () => {
     if (!identity) return;
     qrCodeContainer.innerHTML = '';
@@ -478,7 +512,7 @@ function setupEventListeners() {
         correctLevel: QRCode.CorrectLevel.L
       });
     } else {
-      qrCodeContainer.textContent = "QR-Bibliothek geladen...";
+      qrCodeContainer.textContent = "QR-Bibliothek wird geladen...";
     }
 
     qrModal.classList.remove('hidden');
@@ -496,12 +530,13 @@ function setupEventListeners() {
       key: identity.pubKeyB64
     });
     navigator.clipboard.writeText(invitePayload);
-    showToast("Schlüssel kopiert");
+    showToast("Schlüssel in Zwischenablage kopiert");
   });
 
-  // Camera Scan QR Modal Handler
+  // Camera Scan QR Code Modal
   scanQrBtn.addEventListener('click', () => {
     scannerModal.classList.remove('hidden');
+    showToast("Kamera gestartet");
     if (typeof Html5Qrcode !== 'undefined') {
       html5QrScanner = new Html5Qrcode("qr-reader");
       html5QrScanner.start(
@@ -511,7 +546,7 @@ function setupEventListeners() {
           onQrCodeScanned(decodedText);
         },
         (errorMessage) => {
-          // Scanning in progress
+          // Continuous scanning
         }
       ).catch(err => {
         console.error("Kamerafehler:", err);
@@ -535,16 +570,20 @@ function setupEventListeners() {
       appendMessageUI(msgObj);
       saveChatMessage(activeContact.id, msgObj);
       messageInput.value = '';
+      playSoundFeedback('send');
+      showToast("Nachricht erfolgreich verschlüsselt");
 
-      // Send payload over WebSocket
+      // Send formatted JSON packet over WebSocket Relay
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
+          type: "msg",
           targetId: activeContact.id,
           senderId: identity.id,
-          ciphertext: ciphertextB64
+          ciphertext: ciphertextB64,
+          payload: ciphertextB64
         }));
       } else {
-        showToast("Relay nicht verbunden (Offline Modus)");
+        showToast("Relay nicht verbunden (Nachricht lokal gespeichert)");
       }
     } catch (err) {
       console.error(err);
@@ -564,7 +603,7 @@ function stopScannerModal() {
 }
 
 function onQrCodeScanned(decodedText) {
-  showToast("QR-Code gescannt");
+  showToast("QR-Code erfolgreich gescannt");
   try {
     const parsed = JSON.parse(decodedText);
     if (parsed.id && parsed.key) {
@@ -689,7 +728,8 @@ function connectWebSocket() {
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsHost = window.location.hostname || 'localhost';
-  const wsUrl = `${wsProtocol}//${wsHost}:8080/ws`;
+  const wsPort = window.location.port ? `:${window.location.port}` : (window.location.protocol === 'https:' ? '' : ':8080');
+  const wsUrl = `${wsProtocol}//${wsHost}${wsPort}/ws`;
 
   try {
     ws = new WebSocket(wsUrl);
@@ -706,17 +746,21 @@ function connectWebSocket() {
     ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.ciphertext && data.senderId) {
-          // Decrypt payload using private RSA key
-          const decryptedText = await decryptMessage(data.ciphertext, identity.keyPair.privateKey);
+        const ciphertextB64 = data.payload || data.ciphertext;
+        const senderId = data.senderId;
+
+        if (ciphertextB64 && senderId) {
+          // Decrypt payload locally using private RSA key
+          const decryptedText = await decryptMessage(ciphertextB64, identity.keyPair.privateKey);
           const msgObj = { text: decryptedText, type: 'other', timestamp: Date.now() };
 
-          saveChatMessage(data.senderId, msgObj);
+          saveChatMessage(senderId, msgObj);
+          playSoundFeedback('receive');
 
-          if (activeContact && activeContact.id === data.senderId) {
+          if (activeContact && activeContact.id === senderId) {
             appendMessageUI(msgObj);
           } else {
-            showToast(`Neue Nachricht von ${data.senderId}`);
+            showToast(`Neue verschlüsselte Nachricht von ID: ${senderId}`);
           }
         }
       } catch (err) {
