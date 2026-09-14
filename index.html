@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisChat | Self-Hosted E2EE Messenger</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-background">
+    <div class="glow-sphere glow-1"></div>
+    <div class="glow-sphere glow-2"></div>
+  </div>
+
+  <div id="app" class="app-container">
+    <!-- ONBOARDING / KEY GENERATION SCREEN -->
+    <div id="setup-screen" class="glass-card setup-card">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h1>AegisChat</h1>
+      </div>
+      <p class="tagline">Dein unabhängiger, Ende-zu-Ende verschlüsselter Messenger.</p>
+
+      <div class="form-group">
+        <label for="username-input">Dein Alias / Name</label>
+        <div class="input-wrapper">
+          <input type="text" id="username-input" placeholder="z. B. Alex" autocomplete="off" maxlength="24">
+        </div>
+      </div>
+
+      <button id="generate-keys-btn" class="btn primary-btn">
+        <span>Identität & 8-Digit ID Erzeugen</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+
+      <div id="setup-status" class="status-msg"></div>
+    </div>
+
+    <!-- MAIN CHAT INTERFACE -->
+    <div id="chat-screen" class="glass-card main-chat-card hidden">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="user-profile">
+          <div class="avatar" id="my-avatar">--</div>
+          <div class="profile-info">
+            <h3 id="my-username">Username</h3>
+            <div class="id-badge">
+              <span class="dot online"></span>
+              <span id="my-id">ID: --------</span>
+            </div>
+          </div>
+          <button id="export-keys-btn" class="icon-btn" title="Kopiere Einladungs-Key">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+
+        <div class="section-title">
+          <span>Kontakt Hinzufügen</span>
+        </div>
+
+        <div class="add-contact-form">
+          <input type="text" id="peer-id-input" placeholder="8-stellige ID" maxlength="8">
+          <textarea id="peer-key-input" placeholder="Öffentlichen Key / Einladungscode hier einfügen..."></textarea>
+          <button id="add-contact-btn" class="btn secondary-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Kontakt Speichern</span>
+          </button>
+        </div>
+
+        <div class="section-title">
+          <span>Deine Chats</span>
+        </div>
+
+        <ul id="contacts-list" class="contacts-list">
+          <!-- Dynamische Liste -->
+        </ul>
+      </aside>
+
+      <!-- CHAT MAIN PANEL -->
+      <main class="chat-viewport">
+        <header id="chat-header" class="chat-header hidden">
+          <div class="active-user-info">
+            <div class="avatar" id="active-avatar">?</div>
+            <div>
+              <h4 id="active-contact-name">Kontakt ID</h4>
+              <span class="status-indicator">Ende-zu-Ende Verschlüsselt (RSA-OAEP / 2048 Bit)</span>
+            </div>
+          </div>
+        </header>
+
+        <!-- EMPTY STATE -->
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h3>Kein Chat ausgewählt</h3>
+          <p>Wähle einen Kontakt links aus oder füge eine neue 8-stellige ID hinzu, um gesichert zu schreiben.</p>
+        </div>
+
+        <!-- MESSAGES FEED -->
+        <div id="messages-container" class="messages-container hidden">
+          <!-- Nachrichten dynamisch -->
+        </div>
+
+        <!-- MESSAGE INPUT -->
+        <form id="send-message-form" class="message-input-area hidden">
+          <input type="text" id="message-input" placeholder="Schreibe eine sichere Nachricht..." autocomplete="off">
+          <button type="submit" id="send-btn" class="btn primary-btn send-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </form>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
