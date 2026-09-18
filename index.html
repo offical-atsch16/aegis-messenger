@@ -3,13 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AegisChat | Self-Hosted E2EE Supabase Messenger</title>
+  <title>AegisChat | Cloudflare E2EE Messenger</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <!-- Supabase JS Client library -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- QR Code Generation & Scanner Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode"></script>
@@ -36,10 +34,6 @@
         <span class="brand-title">AegisChat</span>
       </div>
       <div class="header-actions">
-        <button id="open-config-btn" class="btn secondary-btn header-btn" title="Supabase Einstellungen">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Supabase Config</span>
-        </button>
         <a href="https://github.com/official-atsch16" target="_blank" rel="noopener noreferrer" class="btn secondary-btn header-btn">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
           <span>GitHub</span>
@@ -50,13 +44,13 @@
     <!-- HERO SECTION -->
     <section class="hero-section">
       <div class="hero-badge">
-        <span class="badge-dot"></span> Supabase Realtime + 100% Client-Side E2EE
+        <span class="badge-dot"></span> Cloudflare Proxy + 100% Client-Side WebCrypto E2EE
       </div>
       <h1 class="hero-title">
         Der erste Messenger ohne Spuren mit Burner-IDs.
       </h1>
       <p class="hero-subtitle">
-        Authentifizierung & Realtime Messaging via Supabase. Ende-zu-Ende-Verschlüsselung (ECDH + AES-GCM) zu 100% clientseitig. Keine E-Mail oder Handynummer erforderlich.
+        Authentifizierung & Realtime-Messaging über gesicherten Cloudflare Workers Proxy. Ende-zu-Ende-Verschlüsselung (ECDH P-256 + AES-GCM) 100% clientseitig. Keine E-Mail oder Handynummer erforderlich.
       </p>
 
       <div class="hero-cta-group">
@@ -78,7 +72,7 @@
           <div class="feature-icon icon-cyan">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
           </div>
-          <h3>Supabase Auth ohne E-Mail</h3>
+          <h3>Anonyme Auth ohne E-Mail</h3>
           <p>Registrierung und Login nur mit Nutzername & Passwort. Dem Konto wird automatisch eine feste 8-stellige Haupt-ID zugewiesen.</p>
         </div>
 
@@ -95,15 +89,15 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
           <h3>100% Client-Side WebCrypto</h3>
-          <p>Private Keys werden lokal via PBKDF2 + AES-GCM verschlüsselt in Supabase abgelegt. Nachrichtenaustausch via ECDH (P-256) & AES-GCM.</p>
+          <p>Private Keys werden lokal via PBKDF2 + AES-GCM verschlüsselt übertragen. Nachrichtenaustausch via ECDH (P-256) & AES-GCM.</p>
         </div>
 
         <div class="glass-card feature-card">
           <div class="feature-icon icon-emerald">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </div>
-          <h3>Supabase Realtime Messaging</h3>
-          <p>Echtzeit-Push über Supabase WebSockets. Nach dem Ausloggen oder Schließen des Tabs wird der Schlüssel komplett aus dem RAM gelöscht.</p>
+          <h3>Gesicherter Cloudflare Worker</h3>
+          <p>Sämtliche Kommunikation läuft über relative Proxy-Pfade. Keys & Backend-URLs verbleiben sicher in den Cloudflare Secrets.</p>
         </div>
       </div>
     </section>
@@ -122,35 +116,7 @@
     </footer>
   </div>
 
-  <!-- MODAL: SUPABASE CONFIGURATION -->
-  <div id="config-modal" class="modal-overlay hidden">
-    <div class="glass-card setup-card modal-card">
-      <div class="modal-header">
-        <h3>Supabase Konfiguration</h3>
-        <button id="close-config-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
-      </div>
-      <p class="tagline">Trage die Verbindungsdaten deines Supabase-Projekts ein.</p>
-      <form id="config-form" onsubmit="return false;">
-        <div class="form-group">
-          <label for="sb-url-input">Supabase Project URL</label>
-          <div class="input-wrapper">
-            <input type="text" id="sb-url-input" placeholder="https://your-project.supabase.co" autocomplete="off" required>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="sb-key-input">Supabase Anon Key</label>
-          <div class="input-wrapper">
-            <input type="password" id="sb-key-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." autocomplete="off" required>
-          </div>
-        </div>
-        <button id="save-config-btn" type="button" class="btn primary-btn">
-          <span>Einstellungen Speichern</span>
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <!-- MODAL: REGISTRATION (Username + Password only) -->
+  <!-- MODAL: REGISTRATION -->
   <div id="register-modal" class="modal-overlay hidden">
     <div class="glass-card setup-card modal-card">
       <div class="brand">
@@ -190,7 +156,7 @@
     </div>
   </div>
 
-  <!-- MODAL: LOGIN (Username/ID + Password) -->
+  <!-- MODAL: LOGIN -->
   <div id="login-modal" class="modal-overlay hidden">
     <div class="glass-card setup-card modal-card">
       <div class="brand">
@@ -255,7 +221,7 @@
           <div class="profile-info">
             <h3 id="my-username">Username</h3>
             <div class="id-badge">
-              <span class="dot online" id="realtime-status-dot" title="Supabase Realtime Aktiv"></span>
+              <span class="dot online" id="realtime-status-dot" title="Realtime Verbindungsstatus"></span>
               <span id="my-id">ID: --------</span>
             </div>
           </div>

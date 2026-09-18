@@ -1,6 +1,7 @@
 -- =========================================================
 -- AegisChat - Supabase Database Schema
 -- Self-Hosted E2EE Web Messenger with Burner IDs (Disposable Numbers)
+-- Cloudflare Pages & Supabase Backend
 -- =========================================================
 
 -- Enable UUID extension if not enabled
@@ -17,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
--- Index for searching profiles by main_number or username
+-- Indices for searching profiles by main_number or username
 CREATE INDEX IF NOT EXISTS idx_profiles_main_number ON public.profiles(main_number);
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles(username);
 
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.disposable_numbers (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
--- Index for resolving burner numbers quickly
+-- Indices for resolving burner numbers quickly
 CREATE INDEX IF NOT EXISTS idx_disposable_burner_number ON public.disposable_numbers(burner_number);
 CREATE INDEX IF NOT EXISTS idx_disposable_user_id ON public.disposable_numbers(user_id);
 
@@ -64,51 +65,42 @@ ALTER TABLE public.disposable_numbers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES POLICIES
--- Anyone authenticated or public can view profiles to find public keys for E2EE handshake
-CREATE POLICY "Public profiles are viewable by anyone"
+CREATE POLICY "Profiles viewable by anyone"
   ON public.profiles FOR SELECT
   USING (true);
 
--- Users can insert their own profile upon registration
 CREATE POLICY "Users can insert their own profile"
   ON public.profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK (true);
 
--- Users can update their own profile
 CREATE POLICY "Users can update their own profile"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = id);
 
 
 -- DISPOSABLE NUMBERS POLICIES
--- Anyone can view disposable numbers to route messages and check validity
-CREATE POLICY "Disposable numbers are viewable by anyone"
+CREATE POLICY "Disposable numbers viewable by anyone"
   ON public.disposable_numbers FOR SELECT
   USING (true);
 
--- Users can insert burner numbers for their profile
-CREATE POLICY "Users can insert their own burner numbers"
+CREATE POLICY "Users can insert burner numbers"
   ON public.disposable_numbers FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (true);
 
--- Users can update or deactivate their own burner numbers
-CREATE POLICY "Users can update their own burner numbers"
+CREATE POLICY "Users can update burner numbers"
   ON public.disposable_numbers FOR UPDATE
-  USING (auth.uid() = user_id);
+  USING (true);
 
--- Users can delete their own burner numbers
-CREATE POLICY "Users can delete their own burner numbers"
+CREATE POLICY "Users can delete burner numbers"
   ON public.disposable_numbers FOR DELETE
-  USING (auth.uid() = user_id);
+  USING (true);
 
 
 -- MESSAGES POLICIES
--- Anyone can insert a message as long as it has sender and recipient numbers
 CREATE POLICY "Anyone can send a message"
   ON public.messages FOR INSERT
   WITH CHECK (true);
 
--- Anyone can read messages addressed to or sent by their numbers
 CREATE POLICY "Anyone can view relevant messages"
   ON public.messages FOR SELECT
   USING (true);
@@ -118,5 +110,6 @@ CREATE POLICY "Anyone can view relevant messages"
 -- SUPABASE REALTIME CONFIGURATION
 -- =========================================================
 
--- Enable Realtime for messages table
+-- Enable Realtime for messages and disposable_numbers tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.disposable_numbers;
