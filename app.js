@@ -1,19 +1,25 @@
-// AegisChat Client Application Logic
+// AegisChat Client Application Logic with Supabase Backend & E2EE (ECDH + AES-GCM / PBKDF2 Key Wrapping)
 
-// STORAGE KEYS - EXCLUSIVELY SESSIONSTORAGE
-const SESSION_IDENTITY = 'aegis_session_identity';
-const SESSION_CONTACTS = 'aegis_session_contacts';
+// LOCAL STORAGE & SESSION STORAGE KEYS
+const LS_SB_URL = 'aegis_sb_url';
+const LS_SB_KEY = 'aegis_sb_key';
 const SESSION_CHAT_PREFIX = 'aegis_chat_';
 
 // State Variables
-let identity = null; // { username, id, keyPair, pubKeyB64 }
-let contacts = [];   // Array of { id, username, keyB64, keyObject }
-let activeContact = null;
-let ws = null;
+let supabaseClient = null;
+let currentProfile = null; // { id, username, main_number, encrypted_private_key, public_key }
+let decryptedKeyPair = null; // { publicKey, privateKey } (CryptoKey objects, ONLY in memory)
+let myBurnerNumbers = []; // Array of disposable numbers { id, burner_number, active, expires_at }
+let activeContact = null; // { number, public_key }
+let contactsMap = new Map(); // number -> { number, public_key, username }
+let realtimeChannel = null;
 let html5QrScanner = null;
 let audioContext = null;
 
-// --- UTILITY: TOAST NOTIFICATIONS & AUDIO FEEDBACK ---
+// Fake internal domain for Supabase Auth without real emails
+const DUMMY_EMAIL_DOMAIN = '@aegischat.internal';
+
+// --- UTILITY FUNCTIONS ---
 
 function showToast(message) {
   const container = document.getElementById('toast-container');
@@ -57,104 +63,52 @@ function playSoundFeedback(type) {
       osc.stop(now + 0.15);
     }
   } catch (e) {
-    // Audio context not allowed without prior user interaction
+    // Audio context initialization error or user gesture constraint
   }
 }
-
-// --- PROOF-OF-WORK (SHA-256 ANTI-SPAM TASK) ---
-
-async function computeProofOfWork(challengeSeed, difficulty = 3, onProgress) {
-  const enc = new TextEncoder();
-  const prefix = "0".repeat(difficulty); // e.g., "000" leading hex characters
-  let nonce = 0;
-  const batchSize = 500;
-
-  while (true) {
-    for (let i = 0; i < batchSize; i++) {
-      const candidate = `${challengeSeed}:${nonce}`;
-      const buffer = enc.encode(candidate);
-      const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-
-      if (hashHex.startsWith(prefix)) {
-        if (onProgress) onProgress(100, "Proof-of-Work verifiziert!");
-        return { nonce, hashHex };
-      }
-      nonce++;
-    }
-
-    const estimatedPercent = Math.min(98, Math.floor((nonce / 10000) * 100));
-    if (onProgress) onProgress(estimatedPercent, `SHA-256 Hash-Match... Nonce: ${nonce}`);
-    await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI thread to repaint
-  }
-}
-
-// --- WEBCRYPTO FUNCTIONS ---
 
 function generate8DigitId() {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
 
-// Generate RSA-OAEP 2048-bit Key Pair
-async function generateKeyPair() {
+function escapeHtml(text) {
+  return String(text).replace(/&/g, "&amp;")
+                     .replace(/</g, "&lt;")
+                     .replace(/>/g, "&gt;")
+                     .replace(/"/g, "&quot;")
+                     .replace(/'/g, "&#039;");
+}
+
+// --- WEBCRYPTO FUNCTIONS (ECDH P-256 + AES-GCM + PBKDF2 KEY WRAPPING) ---
+
+// Generate ECDH P-256 Key Pair for Client-Side Message Encryption
+async function generateEcdhKeyPair() {
   return await window.crypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["encrypt", "decrypt"]
+    ["deriveKey", "deriveBits"]
   );
 }
 
-// Export Public RSA Key as Base64 JWK
-async function exportPublicKey(key) {
-  const exported = await window.crypto.subtle.exportKey("jwk", key);
-  return btoa(JSON.stringify(exported));
+// Export Public ECDH Key as Base64 JWK
+async function exportPublicKey(publicKey) {
+  const jwk = await window.crypto.subtle.exportKey("jwk", publicKey);
+  return btoa(JSON.stringify(jwk));
 }
 
-// Import Public RSA Key from Base64 JWK
+// Import Public ECDH Key from Base64 JWK
 async function importPublicKey(jwkB64) {
   const jwk = JSON.parse(atob(jwkB64));
   return await window.crypto.subtle.importKey(
     "jwk",
     jwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["encrypt"]
+    []
   );
 }
 
-// RSA Message Encryption
-async function encryptMessage(text, publicKey) {
-  const enc = new TextEncoder();
-  const ciphertext = await window.crypto.subtle.encrypt(
-    { name: "RSA-OAEP" },
-    publicKey,
-    enc.encode(text)
-  );
-  return btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
-}
-
-// RSA Message Decryption
-async function decryptMessage(encryptedB64, privateKey) {
-  const binaryString = atob(encryptedB64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const decrypted = await window.crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    bytes.buffer
-  );
-  return new TextDecoder().decode(decrypted);
-}
-
-// Derive AES-GCM Key from User Password using PBKDF2
+// Derive PBKDF2 Key from User Password for Private Key Wrapping
 async function derivePasswordKey(password, salt) {
   const enc = new TextEncoder();
   const keyMaterial = await window.crypto.subtle.importKey(
@@ -178,8 +132,8 @@ async function derivePasswordKey(password, salt) {
   );
 }
 
-// Encrypt Private Key (JWK JSON string) with User Password
-async function encryptPrivateKey(privateKey, password) {
+// Encrypt Private Key JWK with User Password
+async function wrapPrivateKey(privateKey, password) {
   const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
   const jwkString = JSON.stringify(jwk);
   const salt = window.crypto.getRandomValues(new Uint8Array(16));
@@ -200,8 +154,8 @@ async function encryptPrivateKey(privateKey, password) {
   };
 }
 
-// Decrypt Private Key (JWK) using User Password
-async function decryptPrivateKey(encryptedData, password) {
+// Decrypt Private Key JWK with User Password
+async function unwrapPrivateKey(encryptedData, password) {
   const salt = new Uint8Array(atob(encryptedData.saltB64).split('').map(c => c.charCodeAt(0)));
   const iv = new Uint8Array(atob(encryptedData.ivB64).split('').map(c => c.charCodeAt(0)));
   const binaryEncrypted = atob(encryptedData.encryptedJwkB64);
@@ -223,73 +177,107 @@ async function decryptPrivateKey(encryptedData, password) {
   return await window.crypto.subtle.importKey(
     "jwk",
     jwk,
-    { name: "RSA-OAEP", hash: "SHA-256" },
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["decrypt"]
+    ["deriveKey", "deriveBits"]
   );
 }
 
-// Save encrypted identity into sessionStorage
-function saveSessionIdentity(username, id, pubKeyB64, encryptedPrivateKeyData) {
-  const payload = {
-    username,
-    id,
-    pubKeyB64,
-    encryptedPrivateKeyData
+// Derive Shared Symmetric AES-GCM Key via ECDH
+async function deriveSharedAesKey(myPrivateKey, recipientPublicKey) {
+  return await window.crypto.subtle.deriveKey(
+    { name: "ECDH", public: recipientPublicKey },
+    myPrivateKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+// Encrypt Message Text using ECDH Shared Key
+async function encryptMessagePayload(text, myPrivateKey, recipientPublicKey) {
+  const sharedAesKey = await deriveSharedAesKey(myPrivateKey, recipientPublicKey);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+
+  const encryptedBuffer = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    sharedAesKey,
+    enc.encode(text)
+  );
+
+  const payloadObj = {
+    iv: btoa(String.fromCharCode(...iv)),
+    ciphertext: btoa(String.fromCharCode(...new Uint8Array(encryptedBuffer)))
   };
-  sessionStorage.setItem(SESSION_IDENTITY, JSON.stringify(payload));
+
+  return JSON.stringify(payloadObj);
 }
 
-// Read stored identity from sessionStorage
-function getStoredSessionIdentity() {
-  const stored = sessionStorage.getItem(SESSION_IDENTITY);
-  if (!stored) return null;
-  try {
-    return JSON.parse(stored);
-  } catch (e) {
-    return null;
+// Decrypt Message Text using ECDH Shared Key
+async function decryptMessagePayload(encryptedPayloadStr, myPrivateKey, senderPublicKey) {
+  const payloadObj = JSON.parse(encryptedPayloadStr);
+  const iv = new Uint8Array(atob(payloadObj.iv).split('').map(c => c.charCodeAt(0)));
+  const binaryEncrypted = atob(payloadObj.ciphertext);
+  const encryptedBytes = new Uint8Array(binaryEncrypted.length);
+  for (let i = 0; i < binaryEncrypted.length; i++) {
+    encryptedBytes[i] = binaryEncrypted.charCodeAt(i);
   }
+
+  const sharedAesKey = await deriveSharedAesKey(myPrivateKey, senderPublicKey);
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: iv },
+    sharedAesKey,
+    encryptedBytes.buffer
+  );
+
+  return new TextDecoder().decode(decryptedBuffer);
 }
 
-// Clear all Session Storage Data
-function clearSession() {
-  sessionStorage.clear();
-  identity = null;
-  contacts = [];
-  activeContact = null;
-  if (ws) {
-    ws.close();
-    ws = null;
+// --- SUPABASE CLIENT INITIALIZATION & CONFIG ---
+
+function initSupabase() {
+  const url = localStorage.getItem(LS_SB_URL);
+  const key = localStorage.getItem(LS_SB_KEY);
+
+  if (url && key && window.supabase) {
+    try {
+      supabaseClient = window.supabase.createClient(url, key);
+      return true;
+    } catch (e) {
+      console.error("Supabase Initialization Error:", e);
+    }
   }
-  showToast("Session beendet");
-  location.reload();
+  return false;
 }
 
 // DOM Elements
 const landingPage = document.getElementById('landing-page');
-const startAnonChatBtn = document.getElementById('start-anon-chat-btn');
+const supabaseConfigBtn = document.getElementById('supabase-config-btn');
+const configModal = document.getElementById('config-modal');
+const closeConfigModalBtn = document.getElementById('close-config-modal-btn');
+const sbUrlInput = document.getElementById('sb-url-input');
+const sbKeyInput = document.getElementById('sb-key-input');
+const saveConfigBtn = document.getElementById('save-config-btn');
 
-const powModal = document.getElementById('pow-modal');
-const closePowModalBtn = document.getElementById('close-pow-modal-btn');
-const powProgressBox = document.getElementById('pow-progress-box');
-const powStatusText = document.getElementById('pow-status-text');
-const powBar = document.getElementById('pow-bar');
+const openRegisterBtn = document.getElementById('open-register-btn');
+const registerModal = document.getElementById('register-modal');
+const closeRegisterModalBtn = document.getElementById('close-register-modal-btn');
+const regUsername = document.getElementById('reg-username');
+const regPassword = document.getElementById('reg-password');
+const submitRegisterBtn = document.getElementById('submit-register-btn');
+const registerStatus = document.getElementById('register-status');
 
-const usernameInput = document.getElementById('username-input');
-const passwordInput = document.getElementById('password-input');
-const generateKeysBtn = document.getElementById('generate-keys-btn');
-const setupStatus = document.getElementById('setup-status');
+const openLoginBtn = document.getElementById('open-login-btn');
+const loginModal = document.getElementById('login-modal');
+const closeLoginModalBtn = document.getElementById('close-login-modal-btn');
+const loginIdentifier = document.getElementById('login-identifier');
+const loginPassword = document.getElementById('login-password');
+const submitLoginBtn = document.getElementById('submit-login-btn');
+const loginStatus = document.getElementById('login-status');
 
 const appContainer = document.getElementById('app');
-const unlockScreen = document.getElementById('unlock-screen');
 const chatScreen = document.getElementById('chat-screen');
-
-const unlockPasswordInput = document.getElementById('unlock-password-input');
-const unlockBtn = document.getElementById('unlock-btn');
-const resetSessionBtn = document.getElementById('reset-session-btn');
-const unlockStatus = document.getElementById('unlock-status');
-const unlockUserTagline = document.getElementById('unlock-user-tagline');
-
 const logoutBtn = document.getElementById('logout-btn');
 const mobileLogoutBtn = document.getElementById('mobile-logout-btn');
 const myAvatar = document.getElementById('my-avatar');
@@ -297,430 +285,509 @@ const myUsernameEl = document.getElementById('my-username');
 const myIdEl = document.getElementById('my-id');
 const wsStatusDot = document.getElementById('ws-status-dot');
 
-const showQrBtn = document.getElementById('show-qr-btn');
-const exportKeysBtn = document.getElementById('export-keys-btn');
+const openProfileBtn = document.getElementById('open-profile-btn');
+const mobileProfileBtn = document.getElementById('mobile-profile-btn');
+const profileModal = document.getElementById('profile-modal');
+const closeProfileModalBtn = document.getElementById('close-profile-modal-btn');
+const profileMainId = document.getElementById('profile-main-id');
+const qrMainIdBtn = document.getElementById('qr-main-id-btn');
+const burnerTtlSelect = document.getElementById('burner-ttl-select');
+const createBurnerBtn = document.getElementById('create-burner-btn');
+const burnerList = document.getElementById('burner-list');
 
-const singleInviteInput = document.getElementById('single-invite-input');
+const showQrBtn = document.getElementById('show-qr-btn');
+const qrModal = document.getElementById('qr-modal');
+const closeQrModalBtn = document.getElementById('close-qr-modal-btn');
+const qrCodeContainer = document.getElementById('qr-code-container');
+const qrModalTitle = document.getElementById('qr-modal-title');
+const qrModalSubtext = document.getElementById('qr-modal-subtext');
+const copyQrIdBtn = document.getElementById('copy-qr-id-btn');
+
 const peerIdInput = document.getElementById('peer-id-input');
-const peerKeyInput = document.getElementById('peer-key-input');
 const addContactBtn = document.getElementById('add-contact-btn');
 const scanQrBtn = document.getElementById('scan-qr-btn');
 const contactsList = document.getElementById('contacts-list');
+
+const scannerModal = document.getElementById('scanner-modal');
+const closeScannerModalBtn = document.getElementById('close-scanner-modal-btn');
 
 const chatHeader = document.getElementById('chat-header');
 const emptyState = document.getElementById('empty-state');
 const activeAvatar = document.getElementById('active-avatar');
 const activeContactName = document.getElementById('active-contact-name');
 const messagesContainer = document.getElementById('messages-container');
-const typingIndicator = document.getElementById('typing-indicator');
 const sendMessageForm = document.getElementById('send-message-form');
+const senderNumberSelect = document.getElementById('sender-number-select');
 const messageInput = document.getElementById('message-input');
 
 const mobileToggleBtn = document.getElementById('mobile-toggle-btn');
 const mobileBackBtn = document.getElementById('mobile-back-btn');
 const sidebar = document.getElementById('sidebar');
 
-const qrModal = document.getElementById('qr-modal');
-const closeQrModalBtn = document.getElementById('close-qr-modal-btn');
-const qrCodeContainer = document.getElementById('qr-code-container');
-const copyQrJsonBtn = document.getElementById('copy-qr-json-btn');
-
-const scannerModal = document.getElementById('scanner-modal');
-const closeScannerModalBtn = document.getElementById('close-scanner-modal-btn');
-
 document.addEventListener('DOMContentLoaded', () => {
-  checkSessionState();
+  initSupabase();
 
-  // Landing CTA Button -> Show PoW Registration Modal
-  if (startAnonChatBtn) {
-    startAnonChatBtn.addEventListener('click', () => {
-      powModal.classList.remove('hidden');
-    });
-  }
+  // Populate config fields if stored
+  if (sbUrlInput) sbUrlInput.value = localStorage.getItem(LS_SB_URL) || '';
+  if (sbKeyInput) sbKeyInput.value = localStorage.getItem(LS_SB_KEY) || '';
 
-  if (closePowModalBtn) {
-    closePowModalBtn.addEventListener('click', () => {
-      powModal.classList.add('hidden');
-    });
-  }
+  // Config Modal handlers
+  supabaseConfigBtn.addEventListener('click', () => configModal.classList.remove('hidden'));
+  closeConfigModalBtn.addEventListener('click', () => configModal.classList.add('hidden'));
 
-  // Setup / PoW Registration Handler
-  generateKeysBtn.addEventListener('click', async () => {
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value;
-
-    if (!username || !password) {
-      alert('Bitte sowohl einen Namen als auch ein Passwort eingeben.');
+  saveConfigBtn.addEventListener('click', () => {
+    const url = sbUrlInput.value.trim();
+    const key = sbKeyInput.value.trim();
+    if (!url || !key) {
+      alert('Bitte sowohl Supabase URL als auch Anon Key eingeben.');
       return;
     }
+    localStorage.setItem(LS_SB_URL, url);
+    localStorage.setItem(LS_SB_KEY, key);
+    configModal.classList.add('hidden');
+    initSupabase();
+    showToast("Supabase Konfiguration gespeichert!");
+  });
 
-    if (password.length < 4) {
-      alert('Das Passwort sollte mindestens 4 Zeichen lang sein.');
+  // Auth Modals Handlers
+  openRegisterBtn.addEventListener('click', () => {
+    if (!supabaseClient) {
+      alert("Bitte zuerst Supabase Konfiguration eintragen!");
+      configModal.classList.remove('hidden');
       return;
     }
-
-    generateKeysBtn.disabled = true;
-    powProgressBox.classList.remove('hidden');
-    setupStatus.textContent = '';
-
-    try {
-      // Step 1: Compute Proof-of-Work to defeat bot spam anonymously
-      const seed = `aegischat-${username}-${Date.now()}`;
-      await computeProofOfWork(seed, 3, (percent, statusMsg) => {
-        powBar.style.width = `${percent}%`;
-        powStatusText.textContent = statusMsg;
-      });
-
-      powStatusText.textContent = 'Generiere RSA-2048 Schlüsselpaar & Verschlüssele Private Key...';
-
-      // Step 2: Generate WebCrypto RSA Keys & 8-Digit Unique ID
-      const keyPair = await generateKeyPair();
-      const pubKeyB64 = await exportPublicKey(keyPair.publicKey);
-      const encryptedPrivateKeyData = await encryptPrivateKey(keyPair.privateKey, password);
-      const id = generate8DigitId();
-
-      identity = {
-        username,
-        id,
-        keyPair,
-        pubKeyB64
-      };
-
-      saveSessionIdentity(username, id, pubKeyB64, encryptedPrivateKeyData);
-      powModal.classList.add('hidden');
-      initMainChatUI();
-      showToast("Proof-of-Work verifiziert! Identität & Keys erstellt.");
-    } catch (e) {
-      console.error(e);
-      setupStatus.textContent = 'Fehler bei der Konto-Erstellung.';
-    } finally {
-      generateKeysBtn.disabled = false;
-      powProgressBox.classList.add('hidden');
-    }
+    registerModal.classList.remove('hidden');
   });
+  closeRegisterModalBtn.addEventListener('click', () => registerModal.classList.add('hidden'));
 
-  // Unlock Session Handler
-  unlockBtn.addEventListener('click', async () => {
-    const stored = getStoredSessionIdentity();
-    if (!stored) return;
-
-    const password = unlockPasswordInput.value;
-    if (!password) {
-      alert('Bitte Passwort eingeben.');
+  openLoginBtn.addEventListener('click', () => {
+    if (!supabaseClient) {
+      alert("Bitte zuerst Supabase Konfiguration eintragen!");
+      configModal.classList.remove('hidden');
       return;
     }
-
-    unlockStatus.textContent = 'Entschlüssele Private Key...';
-
-    try {
-      const privateKey = await decryptPrivateKey(stored.encryptedPrivateKeyData, password);
-      const publicKey = await importPublicKey(stored.pubKeyB64);
-
-      identity = {
-        username: stored.username,
-        id: stored.id,
-        pubKeyB64: stored.pubKeyB64,
-        keyPair: {
-          publicKey,
-          privateKey
-        }
-      };
-
-      appContainer.classList.remove('hidden');
-      unlockScreen.classList.add('hidden');
-      initMainChatUI();
-      showToast("Session erfolgreich entschlüsselt");
-    } catch (e) {
-      console.error(e);
-      unlockStatus.textContent = 'Falsches Passwort oder beschädigte Key-Daten.';
-    }
+    loginModal.classList.remove('hidden');
   });
+  closeLoginModalBtn.addEventListener('click', () => loginModal.classList.add('hidden'));
 
-  resetSessionBtn.addEventListener('click', () => {
-    clearSession();
-  });
+  // Registration Execution
+  submitRegisterBtn.addEventListener('click', handleRegistration);
 
-  if (logoutBtn) logoutBtn.addEventListener('click', clearSession);
-  if (mobileLogoutBtn) mobileLogoutBtn.addEventListener('click', clearSession);
+  // Login Execution
+  submitLoginBtn.addEventListener('click', handleLogin);
+
+  // Logout Handlers
+  logoutBtn.addEventListener('click', handleLogout);
+  if (mobileLogoutBtn) mobileLogoutBtn.addEventListener('click', handleLogout);
+
+  // Setup UI Listeners
+  setupChatListeners();
 });
 
-function checkSessionState() {
-  const stored = getStoredSessionIdentity();
-  if (!stored) {
-    landingPage.classList.remove('hidden');
-    appContainer.classList.add('hidden');
-    unlockScreen.classList.add('hidden');
-    chatScreen.classList.add('hidden');
-  } else {
-    landingPage.classList.add('hidden');
-    appContainer.classList.remove('hidden');
-    unlockScreen.classList.remove('hidden');
-    chatScreen.classList.add('hidden');
-    unlockUserTagline.textContent = `Willkommen zurück, ${stored.username}! Gib dein Passwort ein.`;
+// --- REGISTRATION LOGIC ---
+
+async function handleRegistration() {
+  const username = regUsername.value.trim();
+  const password = regPassword.value;
+
+  if (!username || !password) {
+    registerStatus.textContent = 'Bitte Username und Passwort ausfüllen.';
+    return;
+  }
+
+  if (password.length < 6) {
+    registerStatus.textContent = 'Das Passwort muss mindestens 6 Zeichen lang sein.';
+    return;
+  }
+
+  submitRegisterBtn.disabled = true;
+  registerStatus.textContent = 'Erzeuge ECDH-Schlüsselpaar & registriere bei Supabase Auth...';
+
+  try {
+    const email = `${username.toLowerCase()}${DUMMY_EMAIL_DOMAIN}`;
+
+    // 1. Supabase Auth Signup
+    const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+      email: email,
+      password: password
+    });
+
+    if (authError) throw authError;
+    if (!authData.user) throw new Error("Benutzererstellung fehlgeschlagen.");
+
+    const userId = authData.user.id;
+    const mainNumber = generate8DigitId();
+
+    // 2. Generate Client-Side ECDH KeyPair
+    const keyPair = await generateEcdhKeyPair();
+    const pubKeyB64 = await exportPublicKey(keyPair.publicKey);
+
+    // 3. Wrap Private Key using PBKDF2 + AES-GCM
+    const wrappedPrivateKeyData = await wrapPrivateKey(keyPair.privateKey, password);
+
+    // 4. Insert Profile Row in Supabase DB
+    const { error: dbError } = await supabaseClient.from('profiles').insert({
+      id: userId,
+      username: username,
+      main_number: mainNumber,
+      encrypted_private_key: wrappedPrivateKeyData,
+      public_key: pubKeyB64
+    });
+
+    if (dbError) throw dbError;
+
+    registerStatus.textContent = 'Registrierung erfolgreich!';
+    showToast('Konto und E2EE-Schlüssel erfolgreich erstellt!');
+
+    // Set state
+    currentProfile = {
+      id: userId,
+      username: username,
+      main_number: mainNumber,
+      encrypted_private_key: wrappedPrivateKeyData,
+      public_key: pubKeyB64
+    };
+    decryptedKeyPair = keyPair;
+
+    registerModal.classList.add('hidden');
+    initMainChatUI();
+  } catch (err) {
+    console.error("Registration Error:", err);
+    registerStatus.textContent = `Fehler: ${err.message || 'Registrierung fehlgeschlagen.'}`;
+  } finally {
+    submitRegisterBtn.disabled = false;
   }
 }
 
-function initMainChatUI() {
-  landingPage.classList.add('hidden');
-  powModal.classList.add('hidden');
-  appContainer.classList.remove('hidden');
-  unlockScreen.classList.add('hidden');
-  chatScreen.classList.remove('hidden');
+// --- LOGIN LOGIC ---
 
-  myAvatar.textContent = identity.username.slice(0, 2).toUpperCase();
-  myUsernameEl.textContent = identity.username;
-  myIdEl.textContent = `ID: ${identity.id}`;
+async function handleLogin() {
+  const identifier = loginIdentifier.value.trim();
+  const password = loginPassword.value;
 
-  loadContactsFromSession();
-  renderContacts();
-  connectWebSocket();
-  setupEventListeners();
-}
-
-function setupEventListeners() {
-  // Mobile sidebar navigation
-  if (mobileToggleBtn) {
-    mobileToggleBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('mobile-hidden');
-    });
+  if (!identifier || !password) {
+    loginStatus.textContent = 'Bitte ID/Nutzername und Passwort eingeben.';
+    return;
   }
 
-  if (mobileBackBtn) {
-    mobileBackBtn.addEventListener('click', () => {
-      sidebar.classList.remove('mobile-hidden');
-    });
-  }
+  submitLoginBtn.disabled = true;
+  loginStatus.textContent = 'Melde an...';
 
-  // Export Keys / Invite JSON
-  exportKeysBtn.addEventListener('click', () => {
-    if (!identity) return;
-    const exportData = JSON.stringify({
-      id: identity.id,
-      user: identity.username,
-      key: identity.pubKeyB64
-    });
+  try {
+    let usernameToLogin = identifier;
 
-    navigator.clipboard.writeText(exportData);
-    showToast("Einladungscode in Zwischenablage kopiert");
-  });
+    // Check if identifier is an 8-digit number -> query profiles table for corresponding username
+    if (/^\d{8}$/.test(identifier)) {
+      const { data: profileRow, error: pError } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('main_number', identifier)
+        .maybeSingle();
 
-  // Automatic Single Input Invite Parser
-  singleInviteInput.addEventListener('input', () => {
-    const val = singleInviteInput.value.trim();
-    if (!val) return;
-
-    try {
-      let parsed = null;
-      if (val.startsWith('{')) {
-        parsed = JSON.parse(val);
-      } else {
-        try {
-          parsed = JSON.parse(atob(val));
-        } catch (err) {}
+      if (pError || !profileRow) {
+        throw new Error('Kein Profil mit dieser 8-stelligen Haupt-ID gefunden.');
       }
-
-      if (parsed && (parsed.id || parsed.key)) {
-        if (parsed.id) peerIdInput.value = parsed.id;
-        if (parsed.key) peerKeyInput.value = parsed.key;
-        singleInviteInput.value = '';
-        showToast("Einladungscode geparst");
-      }
-    } catch (e) {
-      // Input is not valid JSON yet
+      usernameToLogin = profileRow.username;
     }
+
+    const email = `${usernameToLogin.toLowerCase()}${DUMMY_EMAIL_DOMAIN}`;
+
+    // 1. Supabase Auth Login
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+      email: email,
+      password: password
+    });
+
+    if (authError) throw authError;
+
+    // 2. Fetch Profile Row from Supabase
+    const { data: profileRow, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    if (profileError || !profileRow) throw new Error("Profil nicht gefunden.");
+
+    loginStatus.textContent = 'Entschlüssele Private Key via PBKDF2...';
+
+    // 3. Unwrap Private Key locally
+    const privateKey = await unwrapPrivateKey(profileRow.encrypted_private_key, password);
+    const publicKey = await importPublicKey(profileRow.public_key);
+
+    currentProfile = profileRow;
+    decryptedKeyPair = { publicKey, privateKey };
+
+    loginStatus.textContent = 'Anmeldung erfolgreich!';
+    showToast('Erfolgreich angemeldet & Private Key entschlüsselt!');
+
+    loginModal.classList.add('hidden');
+    initMainChatUI();
+  } catch (err) {
+    console.error("Login Error:", err);
+    loginStatus.textContent = `Fehler: ${err.message || 'Anmeldung fehlgeschlagen.'}`;
+  } finally {
+    submitLoginBtn.disabled = false;
+  }
+}
+
+function handleLogout() {
+  if (supabaseClient) {
+    supabaseClient.auth.signOut();
+  }
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+  currentProfile = null;
+  decryptedKeyPair = null;
+  myBurnerNumbers = [];
+  activeContact = null;
+  contactsMap.clear();
+
+  landingPage.classList.remove('hidden');
+  appContainer.classList.add('hidden');
+  showToast("Erfolgreich abgemeldet.");
+}
+
+// --- MAIN CHAT & UI INITIALIZATION ---
+
+async function initMainChatUI() {
+  landingPage.classList.add('hidden');
+  appContainer.classList.remove('hidden');
+
+  myAvatar.textContent = currentProfile.username.slice(0, 2).toUpperCase();
+  myUsernameEl.textContent = currentProfile.username;
+  myIdEl.textContent = `Haupt-ID: ${currentProfile.main_number}`;
+  profileMainId.textContent = currentProfile.main_number;
+
+  await loadBurnerNumbers();
+  updateSenderSelectOptions();
+  subscribeToRealtimeMessages();
+  renderContacts();
+}
+
+// --- DISPOSABLE NUMBERS (BURNER IDs) MANAGEMENT ---
+
+async function loadBurnerNumbers() {
+  if (!supabaseClient || !currentProfile) return;
+
+  const { data, error } = await supabaseClient
+    .from('disposable_numbers')
+    .select('*')
+    .eq('user_id', currentProfile.id)
+    .eq('active', true);
+
+  if (error) {
+    console.error("Error loading burner numbers:", error);
+    return;
+  }
+
+  // Filter out expired numbers
+  const now = new Date();
+  myBurnerNumbers = (data || []).filter(item => {
+    if (item.expires_at && new Date(item.expires_at) <= now) {
+      return false;
+    }
+    return true;
   });
 
-  // Add Contact Handler
-  addContactBtn.addEventListener('click', async () => {
-    const id = peerIdInput.value.trim();
-    const keyB64 = peerKeyInput.value.trim();
+  renderBurnerListUI();
+  updateSenderSelectOptions();
+}
 
-    if (id.length !== 8 || !keyB64) {
-      alert('Bitte eine 8-stellige ID und den Public Key eingeben.');
+function renderBurnerListUI() {
+  burnerList.innerHTML = '';
+
+  if (myBurnerNumbers.length === 0) {
+    burnerList.innerHTML = '<li class="empty-burner">Keine aktiven Einweg-Nummern. Erstelle eine oben.</li>';
+    return;
+  }
+
+  myBurnerNumbers.forEach(b => {
+    const li = document.createElement('li');
+    li.className = 'burner-item';
+    const expiryText = b.expires_at ? `Verfällt: ${new Date(b.expires_at).toLocaleString()}` : 'Gültig: Unbegrenzt';
+
+    li.innerHTML = `
+      <div class="burner-details">
+        <span class="burner-num mono-bold">${b.burner_number}</span>
+        <span class="burner-expiry">${expiryText}</span>
+      </div>
+      <div class="burner-item-actions">
+        <button class="btn secondary-btn small-btn qr-burner-btn" title="QR-Code anzeigen">QR</button>
+        <button class="btn danger-btn small-btn del-burner-btn" title="Löschen / Inaktivieren">Löschen</button>
+      </div>
+    `;
+
+    li.querySelector('.qr-burner-btn').addEventListener('click', () => {
+      openQrModalForId(b.burner_number, "Einweg-Nummer (Burner ID)");
+    });
+
+    li.querySelector('.del-burner-btn').addEventListener('click', () => {
+      deleteBurnerNumber(b.id);
+    });
+
+    burnerList.appendChild(li);
+  });
+}
+
+async function createBurnerNumber() {
+  if (!supabaseClient || !currentProfile) return;
+
+  const ttlValue = burnerTtlSelect.value;
+  let expiresAt = null;
+
+  if (ttlValue !== 'never') {
+    const now = new Date();
+    if (ttlValue === '1h') now.setHours(now.getHours() + 1);
+    else if (ttlValue === '24h') now.setHours(now.getHours() + 24);
+    else if (ttlValue === '7d') now.setDate(now.getDate() + 7);
+    expiresAt = now.toISOString();
+  }
+
+  const newBurnerNumber = generate8DigitId();
+
+  const { error } = await supabaseClient
+    .from('disposable_numbers')
+    .insert({
+      user_id: currentProfile.id,
+      burner_number: newBurnerNumber,
+      active: true,
+      expires_at: expiresAt
+    });
+
+  if (error) {
+    alert("Fehler beim Erstellen der Einweg-Nummer: " + error.message);
+    return;
+  }
+
+  showToast(`Einweg-Nummer ${newBurnerNumber} erstellt!`);
+  await loadBurnerNumbers();
+}
+
+async function deleteBurnerNumber(id) {
+  if (!supabaseClient) return;
+
+  const { error } = await supabaseClient
+    .from('disposable_numbers')
+    .update({ active: false })
+    .eq('id', id);
+
+  if (error) {
+    alert("Fehler beim Löschen: " + error.message);
+    return;
+  }
+
+  showToast("Einweg-Nummer gelöscht.");
+  await loadBurnerNumbers();
+}
+
+function updateSenderSelectOptions() {
+  senderNumberSelect.innerHTML = '';
+
+  // Main ID Option
+  const optMain = document.createElement('option');
+  optMain.value = currentProfile.main_number;
+  optMain.textContent = `Haupt-ID: ${currentProfile.main_number}`;
+  senderNumberSelect.appendChild(optMain);
+
+  // Burner ID Options
+  myBurnerNumbers.forEach(b => {
+    const opt = document.createElement('option');
+    opt.value = b.burner_number;
+    opt.textContent = `Burner: ${b.burner_number}`;
+    senderNumberSelect.appendChild(opt);
+  });
+}
+
+// --- CONTACT MANAGEMENT & CHAT LOOKUP ---
+
+async function lookupAndAddContact(peerNumber) {
+  if (!peerNumber || peerNumber.length !== 8) {
+    alert("Bitte eine gültige 8-stellige ID eingeben.");
+    return;
+  }
+
+  if (peerNumber === currentProfile.main_number || myBurnerNumbers.some(b => b.burner_number === peerNumber)) {
+    alert("Du kannst nicht deine eigene ID als Kontakt hinzufügen.");
+    return;
+  }
+
+  try {
+    let pubKeyB64 = null;
+    let label = `Kontakt ${peerNumber}`;
+
+    // 1. Search in profiles (Main ID)
+    const { data: pData } = await supabaseClient
+      .from('profiles')
+      .select('username, public_key')
+      .eq('main_number', peerNumber)
+      .maybeSingle();
+
+    if (pData) {
+      pubKeyB64 = pData.public_key;
+      label = `${pData.username} (${peerNumber})`;
+    } else {
+      // 2. Search in disposable_numbers
+      const { data: bData } = await supabaseClient
+        .from('disposable_numbers')
+        .select('user_id, active, expires_at')
+        .eq('burner_number', peerNumber)
+        .eq('active', true)
+        .maybeSingle();
+
+      if (bData) {
+        // Fetch owner's public key from profiles table
+        const { data: ownerProfile } = await supabaseClient
+          .from('profiles')
+          .select('public_key')
+          .eq('id', bData.user_id)
+          .maybeSingle();
+
+        if (ownerProfile) {
+          pubKeyB64 = ownerProfile.public_key;
+        }
+      }
+    }
+
+    if (!pubKeyB64) {
+      alert("Keine aktive ID oder Public Key zu dieser Nummer gefunden.");
       return;
     }
 
-    try {
-      const importedKey = await importPublicKey(keyB64);
-      const existingIndex = contacts.findIndex(c => c.id === id);
-      const newContact = { id, keyB64, keyObject: importedKey };
+    const importedPubKey = await importPublicKey(pubKeyB64);
+    const contactObj = {
+      number: peerNumber,
+      publicKeyB64: pubKeyB64,
+      publicKeyObject: importedPubKey,
+      label: label
+    };
 
-      if (existingIndex >= 0) {
-        contacts[existingIndex] = newContact;
-      } else {
-        contacts.push(newContact);
-      }
-
-      saveContactsToSession();
-      renderContacts();
-
-      peerIdInput.value = '';
-      peerKeyInput.value = '';
-      singleInviteInput.value = '';
-      showToast(`Kontakt ${id} gespeichert`);
-    } catch (e) {
-      alert('Ungültiger Key. Import fehlgeschlagen.');
-    }
-  });
-
-  // Show QR Code Modal
-  showQrBtn.addEventListener('click', () => {
-    if (!identity) return;
-    qrCodeContainer.innerHTML = '';
-
-    const invitePayload = JSON.stringify({
-      id: identity.id,
-      user: identity.username,
-      key: identity.pubKeyB64
-    });
-
-    if (typeof QRCode !== 'undefined') {
-      new QRCode(qrCodeContainer, {
-        text: invitePayload,
-        width: 180,
-        height: 180,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.L
-      });
-    } else {
-      qrCodeContainer.textContent = "QR-Bibliothek wird geladen...";
-    }
-
-    qrModal.classList.remove('hidden');
-  });
-
-  closeQrModalBtn.addEventListener('click', () => {
-    qrModal.classList.add('hidden');
-  });
-
-  copyQrJsonBtn.addEventListener('click', () => {
-    if (!identity) return;
-    const invitePayload = JSON.stringify({
-      id: identity.id,
-      user: identity.username,
-      key: identity.pubKeyB64
-    });
-    navigator.clipboard.writeText(invitePayload);
-    showToast("Schlüssel in Zwischenablage kopiert");
-  });
-
-  // Camera Scan QR Code Modal
-  scanQrBtn.addEventListener('click', () => {
-    scannerModal.classList.remove('hidden');
-    showToast("Kamera gestartet");
-    if (typeof Html5Qrcode !== 'undefined') {
-      html5QrScanner = new Html5Qrcode("qr-reader");
-      html5QrScanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decodedText) => {
-          onQrCodeScanned(decodedText);
-        },
-        (errorMessage) => {
-          // Continuous scanning
-        }
-      ).catch(err => {
-        console.error("Kamerafehler:", err);
-        showToast("Kamera konnte nicht gestartet werden");
-      });
-    }
-  });
-
-  closeScannerModalBtn.addEventListener('click', stopScannerModal);
-
-  // Send Message Handler
-  sendMessageForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = messageInput.value.trim();
-    if (!text || !activeContact) return;
-
-    try {
-      const ciphertextB64 = await encryptMessage(text, activeContact.keyObject);
-      const msgObj = { text, type: 'own', timestamp: Date.now() };
-
-      appendMessageUI(msgObj);
-      saveChatMessage(activeContact.id, msgObj);
-      messageInput.value = '';
-      playSoundFeedback('send');
-      showToast("Nachricht erfolgreich verschlüsselt");
-
-      // Send formatted JSON packet over WebSocket Relay
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "msg",
-          targetId: activeContact.id,
-          senderId: identity.id,
-          ciphertext: ciphertextB64,
-          payload: ciphertextB64
-        }));
-      } else {
-        showToast("Relay nicht verbunden (Nachricht lokal gespeichert)");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Verschlüsselungsfehler");
-    }
-  });
-}
-
-function stopScannerModal() {
-  if (html5QrScanner) {
-    html5QrScanner.stop().then(() => {
-      html5QrScanner.clear();
-      html5QrScanner = null;
-    }).catch(err => console.error(err));
+    contactsMap.set(peerNumber, contactObj);
+    renderContacts();
+    selectContact(contactObj);
+    showToast(`Kontakt ${peerNumber} hinzugefügt!`);
+  } catch (err) {
+    console.error("Lookup Contact Error:", err);
+    alert("Fehler beim Abrufen der Kontaktdaten.");
   }
-  scannerModal.classList.add('hidden');
-}
-
-function onQrCodeScanned(decodedText) {
-  showToast("QR-Code erfolgreich gescannt");
-  try {
-    const parsed = JSON.parse(decodedText);
-    if (parsed.id && parsed.key) {
-      peerIdInput.value = parsed.id;
-      peerKeyInput.value = parsed.key;
-    }
-  } catch (e) {
-    peerKeyInput.value = decodedText;
-  }
-  stopScannerModal();
-}
-
-// --- SESSION CHAT & CONTACT STORAGE MANAGEMENT ---
-
-function loadContactsFromSession() {
-  const stored = sessionStorage.getItem(SESSION_CONTACTS);
-  if (stored) {
-    try {
-      const serializable = JSON.parse(stored);
-      contacts = [];
-      for (const c of serializable) {
-        importPublicKey(c.keyB64).then(keyObj => {
-          contacts.push({ id: c.id, keyB64: c.keyB64, keyObject: keyObj });
-          renderContacts();
-        }).catch(err => console.error(err));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-}
-
-function saveContactsToSession() {
-  const serializable = contacts.map(c => ({ id: c.id, keyB64: c.keyB64 }));
-  sessionStorage.setItem(SESSION_CONTACTS, JSON.stringify(serializable));
 }
 
 function renderContacts() {
   contactsList.innerHTML = '';
-  contacts.forEach(c => {
+
+  if (contactsMap.size === 0) {
+    contactsList.innerHTML = '<li class="empty-burner">Noch keine Chats vorhanden.</li>';
+    return;
+  }
+
+  contactsMap.forEach(c => {
     const li = document.createElement('li');
-    li.className = `contact-item ${activeContact && activeContact.id === c.id ? 'active' : ''}`;
+    li.className = `contact-item ${activeContact && activeContact.number === c.number ? 'active' : ''}`;
     li.innerHTML = `
-      <div class="avatar">${c.id.slice(0, 2)}</div>
-      <div class="contact-id">ID: ${c.id}</div>
+      <div class="avatar">${c.number.slice(0, 2)}</div>
+      <div class="contact-id">${escapeHtml(c.label)}</div>
     `;
     li.addEventListener('click', () => selectContact(c));
     contactsList.appendChild(li);
@@ -740,14 +807,16 @@ function selectContact(contact) {
     sidebar.classList.add('mobile-hidden');
   }
 
-  activeAvatar.textContent = contact.id.slice(0, 2);
-  activeContactName.textContent = `Chat ID: ${contact.id}`;
+  activeAvatar.textContent = contact.number.slice(0, 2);
+  activeContactName.textContent = contact.label;
 
-  loadAndRenderChatHistory(contact.id);
+  loadAndRenderChatHistory(contact.number);
 }
 
-function getChatHistory(contactId) {
-  const stored = sessionStorage.getItem(SESSION_CHAT_PREFIX + contactId);
+// --- LOCAL SESSION MESSAGING & HISTORIES ---
+
+function getChatHistory(contactNumber) {
+  const stored = sessionStorage.getItem(SESSION_CHAT_PREFIX + contactNumber);
   if (!stored) return [];
   try {
     return JSON.parse(stored);
@@ -756,15 +825,15 @@ function getChatHistory(contactId) {
   }
 }
 
-function saveChatMessage(contactId, msgObj) {
-  const history = getChatHistory(contactId);
+function saveChatMessage(contactNumber, msgObj) {
+  const history = getChatHistory(contactNumber);
   history.push(msgObj);
-  sessionStorage.setItem(SESSION_CHAT_PREFIX + contactId, JSON.stringify(history));
+  sessionStorage.setItem(SESSION_CHAT_PREFIX + contactNumber, JSON.stringify(history));
 }
 
-function loadAndRenderChatHistory(contactId) {
+function loadAndRenderChatHistory(contactNumber) {
   messagesContainer.innerHTML = '';
-  const history = getChatHistory(contactId);
+  const history = getChatHistory(contactNumber);
   history.forEach(msg => appendMessageUI(msg));
   scrollToBottom();
 }
@@ -773,7 +842,10 @@ function appendMessageUI(msgObj) {
   const time = new Date(msgObj.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const div = document.createElement('div');
   div.className = `msg-bubble ${msgObj.type}`;
+  const senderMeta = msgObj.senderNumber ? `<div class="msg-sender-num">An: ${msgObj.recipientNumber} | Von: ${msgObj.senderNumber}</div>` : '';
+
   div.innerHTML = `
+    ${senderMeta}
     <div>${escapeHtml(msgObj.text)}</div>
     <div class="msg-meta">${time}</div>
   `;
@@ -785,73 +857,268 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;")
-             .replace(/</g, "&lt;")
-             .replace(/>/g, "&gt;")
-             .replace(/"/g, "&quot;")
-             .replace(/'/g, "&#039;");
-}
+// --- SUPABASE REALTIME & SEND MESSAGE LOGIC ---
 
-// --- WEBSOCKET RELAY CONNECTION ---
+async function sendMessage() {
+  const text = messageInput.value.trim();
+  const senderNum = senderNumberSelect.value;
 
-function connectWebSocket() {
-  if (!identity) return;
-
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsHost = window.location.hostname || 'localhost';
-  const wsPort = window.location.port ? `:${window.location.port}` : (window.location.protocol === 'https:' ? '' : ':8080');
-  const wsUrl = `${wsProtocol}//${wsHost}${wsPort}/ws`;
+  if (!text || !activeContact || !decryptedKeyPair) return;
 
   try {
-    ws = new WebSocket(wsUrl);
+    // 1. Encrypt text payload with recipient's public key via ECDH + AES-GCM
+    const encryptedPayloadStr = await encryptMessagePayload(
+      text,
+      decryptedKeyPair.privateKey,
+      activeContact.publicKeyObject
+    );
 
-    ws.onopen = () => {
-      wsStatusDot.className = 'dot online';
-      // Register current user ID with WebSocket server
-      ws.send(JSON.stringify({
-        type: 'register',
-        clientId: identity.id
-      }));
+    // 2. Insert into Supabase `messages` table
+    const { error } = await supabaseClient
+      .from('messages')
+      .insert({
+        sender_number: senderNum,
+        recipient_number: activeContact.number,
+        encrypted_payload: encryptedPayloadStr
+      });
+
+    if (error) throw error;
+
+    // 3. Update local session history & UI
+    const localMsgObj = {
+      text: text,
+      type: 'own',
+      senderNumber: senderNum,
+      recipientNumber: activeContact.number,
+      timestamp: Date.now()
     };
 
-    ws.onmessage = async (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const ciphertextB64 = data.payload || data.ciphertext;
-        const senderId = data.senderId;
+    appendMessageUI(localMsgObj);
+    saveChatMessage(activeContact.number, localMsgObj);
+    messageInput.value = '';
+    playSoundFeedback('send');
+    showToast("Nachricht 100% E2EE verschlüsselt gesendet!");
+  } catch (err) {
+    console.error("Send Message Error:", err);
+    alert("Fehler beim Senden der Nachricht: " + err.message);
+  }
+}
 
-        if (ciphertextB64 && senderId) {
-          // Decrypt payload locally using private RSA key
-          const decryptedText = await decryptMessage(ciphertextB64, identity.keyPair.privateKey);
-          const msgObj = { text: decryptedText, type: 'other', timestamp: Date.now() };
+function subscribeToRealtimeMessages() {
+  if (!supabaseClient || realtimeChannel) return;
 
-          saveChatMessage(senderId, msgObj);
-          playSoundFeedback('receive');
+  wsStatusDot.className = 'dot online';
 
-          if (activeContact && activeContact.id === senderId) {
-            appendMessageUI(msgObj);
-          } else {
-            showToast(`Neue verschlüsselte Nachricht von ID: ${senderId}`);
-          }
-        }
-      } catch (err) {
-        console.error("Relay empfing ungültige oder unentschlüsselbare Nachricht:", err);
+  realtimeChannel = supabaseClient
+    .channel('public:messages')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
+      const newMsg = payload.new;
+      if (!newMsg) return;
+
+      const myNumbers = [currentProfile.main_number, ...myBurnerNumbers.map(b => b.burner_number)];
+
+      // Check if message belongs to one of my numbers as recipient
+      if (myNumbers.includes(newMsg.recipient_number)) {
+        await handleIncomingMessage(newMsg);
       }
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        wsStatusDot.className = 'dot online';
+      } else {
+        wsStatusDot.className = 'dot offline';
+      }
+    });
+}
+
+async function handleIncomingMessage(msgRow) {
+  const senderNum = msgRow.sender_number;
+  let senderContact = contactsMap.get(senderNum);
+
+  // If sender is not in contact map, fetch public key
+  if (!senderContact) {
+    let pubKeyB64 = null;
+
+    const { data: pData } = await supabaseClient
+      .from('profiles')
+      .select('public_key')
+      .eq('main_number', senderNum)
+      .maybeSingle();
+
+    if (pData) {
+      pubKeyB64 = pData.public_key;
+    } else {
+      const { data: bData } = await supabaseClient
+        .from('disposable_numbers')
+        .select('user_id')
+        .eq('burner_number', senderNum)
+        .maybeSingle();
+
+      if (bData) {
+        const { data: owner } = await supabaseClient
+          .from('profiles')
+          .select('public_key')
+          .eq('id', bData.user_id)
+          .maybeSingle();
+        if (owner) pubKeyB64 = owner.public_key;
+      }
+    }
+
+    if (pubKeyB64) {
+      const importedPubKey = await importPublicKey(pubKeyB64);
+      senderContact = {
+        number: senderNum,
+        publicKeyB64: pubKeyB64,
+        publicKeyObject: importedPubKey,
+        label: `Kontakt ${senderNum}`
+      };
+      contactsMap.set(senderNum, senderContact);
+      renderContacts();
+    }
+  }
+
+  if (!senderContact) return;
+
+  try {
+    // Decrypt payload
+    const decryptedText = await decryptMessagePayload(
+      msgRow.encrypted_payload,
+      decryptedKeyPair.privateKey,
+      senderContact.publicKeyObject
+    );
+
+    const msgObj = {
+      text: decryptedText,
+      type: 'other',
+      senderNumber: senderNum,
+      recipientNumber: msgRow.recipient_number,
+      timestamp: new Date(msgRow.created_at).getTime()
     };
 
-    ws.onerror = () => {
-      wsStatusDot.className = 'dot offline';
-    };
+    saveChatMessage(senderNum, msgObj);
+    playSoundFeedback('receive');
 
-    ws.onclose = () => {
-      wsStatusDot.className = 'dot offline';
-      // Auto-reconnect try
-      setTimeout(() => {
-        if (identity) connectWebSocket();
-      }, 5000);
-    };
-  } catch (e) {
-    wsStatusDot.className = 'dot offline';
+    if (activeContact && activeContact.number === senderNum) {
+      appendMessageUI(msgObj);
+    } else {
+      showToast(`Neue verschlüsselte Nachricht von ${senderNum}`);
+    }
+  } catch (err) {
+    console.error("Decryption Error for incoming message:", err);
+  }
+}
+
+// --- EVENT LISTENERS & MODAL TRIGGERS ---
+
+function setupChatListeners() {
+  if (mobileToggleBtn) {
+    mobileToggleBtn.addEventListener('click', () => sidebar.classList.toggle('mobile-hidden'));
+  }
+
+  if (mobileBackBtn) {
+    mobileBackBtn.addEventListener('click', () => sidebar.classList.remove('mobile-hidden'));
+  }
+
+  // Profile / Burner ID modal
+  const openProfile = () => profileModal.classList.remove('hidden');
+  openProfileBtn.addEventListener('click', openProfile);
+  if (mobileProfileBtn) mobileProfileBtn.addEventListener('click', openProfile);
+
+  closeProfileModalBtn.addEventListener('click', () => profileModal.classList.add('hidden'));
+
+  createBurnerBtn.addEventListener('click', createBurnerNumber);
+
+  qrMainIdBtn.addEventListener('click', () => {
+    openQrModalForId(currentProfile.main_number, "Haupt-ID");
+  });
+
+  // Add contact handler
+  addContactBtn.addEventListener('click', () => {
+    const val = peerIdInput.value.trim();
+    lookupAndAddContact(val);
+  });
+
+  // QR display & camera scanning
+  showQrBtn.addEventListener('click', () => {
+    openQrModalForId(currentProfile.main_number, "Deine Haupt-ID");
+  });
+
+  closeQrModalBtn.addEventListener('click', () => qrModal.classList.add('hidden'));
+
+  copyQrIdBtn.addEventListener('click', () => {
+    const val = copyQrIdBtn.getAttribute('data-id');
+    if (val) {
+      navigator.clipboard.writeText(val);
+      showToast("ID in Zwischenablage kopiert!");
+    }
+  });
+
+  scanQrBtn.addEventListener('click', () => {
+    scannerModal.classList.remove('hidden');
+    if (typeof Html5Qrcode !== 'undefined') {
+      html5QrScanner = new Html5Qrcode("qr-reader");
+      html5QrScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => {
+          onQrCodeScanned(decodedText);
+        },
+        () => {}
+      ).catch(err => {
+        console.error("Camera Error:", err);
+        showToast("Kamera konnte nicht gestartet werden");
+      });
+    }
+  });
+
+  closeScannerModalBtn.addEventListener('click', stopScannerModal);
+
+  // Send Message form
+  sendMessageForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendMessage();
+  });
+}
+
+function openQrModalForId(idNumber, titleLabel) {
+  qrModalTitle.textContent = `QR-Code: ${titleLabel}`;
+  qrModalSubtext.textContent = `Scanne diesen Code, um eine Chat-Verbindung mit der ID ${idNumber} einzurichten.`;
+  copyQrIdBtn.setAttribute('data-id', idNumber);
+
+  qrCodeContainer.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    new QRCode(qrCodeContainer, {
+      text: idNumber,
+      width: 180,
+      height: 180,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.L
+    });
+  } else {
+    qrCodeContainer.textContent = idNumber;
+  }
+
+  qrModal.classList.remove('hidden');
+}
+
+function stopScannerModal() {
+  if (html5QrScanner) {
+    html5QrScanner.stop().then(() => {
+      html5QrScanner.clear();
+      html5QrScanner = null;
+    }).catch(err => console.error(err));
+  }
+  scannerModal.classList.add('hidden');
+}
+
+function onQrCodeScanned(decodedText) {
+  stopScannerModal();
+  const cleaned = decodedText.trim();
+  if (cleaned.length === 8 && /^\d{8}$/.test(cleaned)) {
+    peerIdInput.value = cleaned;
+    lookupAndAddContact(cleaned);
+  } else {
+    showToast("Gescannter QR-Code enthält keine 8-stellige ID.");
   }
 }

@@ -1,4 +1,4 @@
-/* AegisChat - Modern Glassmorphism & Responsive Theme */
+/* AegisChat - Modern Glassmorphism & Responsive Theme with Supabase & Burner IDs */
 :root {
   --bg-dark: #070a13;
   --panel-bg: rgba(15, 23, 42, 0.78);
@@ -13,6 +13,8 @@
   --input-bg: rgba(10, 15, 28, 0.65);
   --msg-own: linear-gradient(135deg, #6366f1, #4f46e5);
   --msg-other: rgba(30, 41, 59, 0.85);
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
   --font-main: 'Plus Jakarta Sans', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
@@ -154,6 +156,11 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 0 32px 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .brand {
@@ -342,7 +349,7 @@ body {
   font-size: 12px;
 }
 
-/* POW & ANONYMOUS REGISTRATION SETUP CARD */
+/* AUTH & SETUP CARDS */
 .setup-card {
   width: 100%;
   max-width: 440px;
@@ -376,7 +383,7 @@ label {
   width: 100%;
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--panel-border);
@@ -388,14 +395,16 @@ input, textarea {
   transition: all 0.2s ease;
 }
 
-textarea {
-  resize: none;
-  height: 60px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+select {
+  cursor: pointer;
 }
 
-input:focus, textarea:focus {
+select option {
+  background: #0f172a;
+  color: var(--text-main);
+}
+
+input:focus, textarea:focus, select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
@@ -436,6 +445,23 @@ input:focus, textarea:focus {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.danger-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--danger);
+}
+
+.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.small-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  width: auto;
+  border-radius: 8px;
+}
+
 .icon-btn {
   background: transparent;
   border: none;
@@ -458,59 +484,6 @@ input:focus, textarea:focus {
   margin-top: 14px;
   font-size: 13px;
   color: var(--accent-cyan);
-}
-
-/* Proof-of-Work Progress Box */
-.pow-progress-box {
-  background: rgba(10, 15, 28, 0.8);
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-}
-
-.pow-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--accent-cyan);
-  border-radius: 50%;
-  animation: powSpin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes powSpin {
-  to { transform: rotate(360deg); }
-}
-
-.pow-info {
-  flex: 1;
-}
-
-.pow-info span {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: block;
-  margin-bottom: 6px;
-}
-
-.pow-bar-bg {
-  width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.pow-bar {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(to right, var(--accent), var(--accent-cyan));
-  transition: width 0.15s ease;
 }
 
 /* APP CONTAINER & MAIN CHAT INTERFACE */
@@ -644,26 +617,6 @@ input:focus, textarea:focus {
   gap: 10px;
 }
 
-.or-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  margin: 2px 0;
-}
-
-.or-divider::before, .or-divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.or-divider span {
-  padding: 0 8px;
-}
-
 .btn-group {
   display: flex;
   gap: 8px;
@@ -705,9 +658,11 @@ input:focus, textarea:focus {
 }
 
 .contact-item .contact-id {
-  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Footer / Branding in Sidebar */
@@ -831,6 +786,13 @@ input:focus, textarea:focus {
   border: 1px solid var(--panel-border);
 }
 
+.msg-sender-num {
+  font-size: 10px;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  margin-bottom: 4px;
+}
+
 .msg-meta {
   font-size: 10px;
   opacity: 0.7;
@@ -838,9 +800,15 @@ input:focus, textarea:focus {
   text-align: right;
 }
 
-/* Typing Indicator */
-.typing-indicator {
-  padding: 8px 24px;
+.message-input-area {
+  padding: 16px 24px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sender-identity-selector {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -848,30 +816,14 @@ input:focus, textarea:focus {
   color: var(--text-muted);
 }
 
-.typing-dots {
-  display: flex;
-  gap: 4px;
+.sender-select {
+  width: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
 }
 
-.typing-dots span {
-  width: 6px;
-  height: 6px;
-  background: var(--accent-cyan);
-  border-radius: 50%;
-  animation: typingBounce 1.4s infinite ease-in-out both;
-}
-
-.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes typingBounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
-}
-
-.message-input-area {
-  padding: 16px 24px;
-  border-top: 1px solid var(--panel-border);
+.message-input-wrapper {
   display: flex;
   gap: 12px;
 }
@@ -882,6 +834,116 @@ input:focus, textarea:focus {
   padding: 0;
   border-radius: 12px;
   flex-shrink: 0;
+}
+
+/* PROFILE & BURNER IDs MODAL */
+.profile-modal-card {
+  max-width: 520px;
+}
+
+.profile-modal-body {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.profile-card-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(10, 15, 28, 0.6);
+  border: 1px solid var(--panel-border);
+  padding: 14px 18px;
+  border-radius: 14px;
+}
+
+.mono-bold {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.burner-generator-box {
+  background: rgba(10, 15, 28, 0.4);
+  border: 1px solid var(--panel-border);
+  padding: 16px;
+  border-radius: 14px;
+}
+
+.burner-generator-box h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.inline-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.select-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.burner-list-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+}
+
+.burner-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.empty-burner {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.burner-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--panel-border);
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+.burner-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.burner-num {
+  font-size: 14px;
+}
+
+.burner-expiry {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.burner-item-actions {
+  display: flex;
+  gap: 6px;
 }
 
 /* Modals Overlay */
@@ -899,7 +961,7 @@ input:focus, textarea:focus {
 
 .modal-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   padding: 24px;
 }
 
