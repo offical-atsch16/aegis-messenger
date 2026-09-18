@@ -66,40 +66,11 @@ export default {
       const supabaseWsHost = cleanBaseUrl.replace(/^https?:\/\//, '');
       const supabaseWsUrl = `${wsProtocol}://${supabaseWsHost}/realtime/v1/websocket?apikey=${supabaseAnonKey}&vsn=1.0.0`;
 
-      // Use WebSocketPair for Cloudflare Workers WebSocket proxying
-      const webSocketPair = new WebSocketPair();
-      const [clientWs, serverWs] = Object.values(webSocketPair);
-
-      serverWs.accept();
-
-      try {
-        const backendWs = new WebSocket(supabaseWsUrl);
-
-        backendWs.addEventListener('open', () => {
-          serverWs.addEventListener('message', (evt) => {
-            if (backendWs.readyState === WebSocket.OPEN) {
-              backendWs.send(evt.data);
-            }
-          });
-        });
-
-        backendWs.addEventListener('message', (evt) => {
-          if (serverWs.readyState === WebSocket.OPEN) {
-            serverWs.send(evt.data);
-          }
-        });
-
-        backendWs.addEventListener('close', (evt) => serverWs.close(evt.code || 1000, evt.reason || ''));
-        serverWs.addEventListener('close', (evt) => backendWs.close(evt.code || 1000, evt.reason || ''));
-        backendWs.addEventListener('error', () => serverWs.close(1011, 'Backend WebSocket error'));
-        serverWs.addEventListener('error', () => backendWs.close(1011, 'Server WebSocket error'));
-      } catch (err) {
-        return new Response(JSON.stringify({ error: 'WebSocket proxying failed' }), { status: 500 });
-      }
-
-      return new Response(null, {
-        status: 101,
-        webSocket: clientWs
+      // Pass-through WebSocket request to Supabase Realtime using Cloudflare fetch
+      return fetch(supabaseWsUrl, {
+        headers: {
+          'Upgrade': 'websocket'
+        }
       });
     }
 
