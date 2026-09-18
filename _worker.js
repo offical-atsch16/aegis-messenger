@@ -95,32 +95,54 @@ export default {
         const { username, password, main_number, encrypted_private_key, public_key } = body;
 
         if (!username || !password || !main_number || !encrypted_private_key || !public_key) {
-          return new Response(JSON.stringify({ error: 'Fehlende Felder für Registrierung.' }), { status: 400 });
+          return new Response(JSON.stringify({ error: 'Fehlende Felder für Registrierung.' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
 
         const syntheticEmail = `${username.toLowerCase()}@aegis.internal`;
+        const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
 
-        // Step 1: Sign up in Supabase Auth
-        const signUpRes = await fetch(`${cleanBaseUrl}/auth/v1/signup`, {
-          method: 'POST',
-          headers: getSupabaseHeaders(),
-          body: JSON.stringify({
-            email: syntheticEmail,
-            password: password,
-            data: { username, main_number }
-          })
-        });
+        let user = null;
+        let accessToken = null;
 
-        const signUpData = await signUpRes.json();
-        if (!signUpRes.ok) {
-          return new Response(JSON.stringify({ error: signUpData.msg || signUpData.error_description || 'Registrierung fehlgeschlagen.' }), { status: signUpRes.status });
-        }
+        if (serviceRoleKey) {
+          // Admin registration via Supabase Admin API
+          const adminRes = await fetch(`${cleanBaseUrl}/auth/v1/admin/users`, {
+            method: 'POST',
+            headers: {
+              'apikey': serviceRoleKey,
+              'Authorization': `Bearer ${serviceRoleKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              email: syntheticEmail,
+              password: password,
+              email_confirm: true,
+              user_metadata: { username, main_number }
+            })
+          });
 
-        let user = signUpData.user || signUpData;
-        let accessToken = signUpData.access_token;
+          const adminData = await adminRes.json();
 
-        // If no access_token returned (email confirmation enabled in Supabase default settings), auto login
-        if (!accessToken) {
+          if (!adminRes.ok) {
+            const errMsg = adminData.msg || adminData.message || adminData.error_description || adminData.error || 'Registrierung fehlgeschlagen.';
+            if (errMsg.toLowerCase().includes('rate limit') || adminRes.status === 429) {
+              return new Response(JSON.stringify({ error: 'Service Key fehlt oder Supabase E-Mail-Limit aktiv.' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+            return new Response(JSON.stringify({ error: errMsg }), {
+              status: adminRes.status,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          user = adminData.user || adminData;
+
+          // Authenticate user to obtain access_token
           const loginRes = await fetch(`${cleanBaseUrl}/auth/v1/token?grant_type=password`, {
             method: 'POST',
             headers: getSupabaseHeaders(),
@@ -133,7 +155,57 @@ export default {
           const loginData = await loginRes.json();
           if (loginRes.ok && loginData.access_token) {
             accessToken = loginData.access_token;
-            user = loginData.user;
+            if (loginData.user) {
+              user = loginData.user;
+            }
+          }
+        } else {
+          // Fallback to standard signup when SUPABASE_SERVICE_ROLE_KEY is missing
+          const signUpRes = await fetch(`${cleanBaseUrl}/auth/v1/signup`, {
+            method: 'POST',
+            headers: getSupabaseHeaders(),
+            body: JSON.stringify({
+              email: syntheticEmail,
+              password: password,
+              data: { username, main_number }
+            })
+          });
+
+          const signUpData = await signUpRes.json();
+          if (!signUpRes.ok) {
+            const errMsg = signUpData.msg || signUpData.error_description || signUpData.message || signUpData.error || 'Registrierung fehlgeschlagen.';
+            if (errMsg.toLowerCase().includes('rate limit') || signUpRes.status === 429) {
+              return new Response(JSON.stringify({ error: 'Service Key fehlt oder Supabase E-Mail-Limit aktiv.' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+            return new Response(JSON.stringify({ error: errMsg }), {
+              status: signUpRes.status,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          user = signUpData.user || signUpData;
+          accessToken = signUpData.access_token;
+
+          if (!accessToken) {
+            const loginRes = await fetch(`${cleanBaseUrl}/auth/v1/token?grant_type=password`, {
+              method: 'POST',
+              headers: getSupabaseHeaders(),
+              body: JSON.stringify({
+                email: syntheticEmail,
+                password: password
+              })
+            });
+
+            const loginData = await loginRes.json();
+            if (loginRes.ok && loginData.access_token) {
+              accessToken = loginData.access_token;
+              if (loginData.user) {
+                user = loginData.user;
+              }
+            }
           }
         }
 
@@ -141,7 +213,7 @@ export default {
         const profileRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles`, {
           method: 'POST',
           headers: {
-            ...getSupabaseHeaders(accessToken),
+            ...getSupabaseHeaders(accessToken || serviceRoleKey),
             'Prefer': 'return=representation'
           },
           body: JSON.stringify({
@@ -155,7 +227,10 @@ export default {
 
         const profileData = await profileRes.json();
         if (!profileRes.ok) {
-          return new Response(JSON.stringify({ error: profileData.message || 'Profil konnte nicht angelegt werden.' }), { status: profileRes.status });
+          return new Response(JSON.stringify({ error: profileData.message || profileData.error || 'Profil konnte nicht angelegt werden.' }), {
+            status: profileRes.status,
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
 
         return new Response(JSON.stringify({
