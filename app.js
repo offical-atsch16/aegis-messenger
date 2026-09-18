@@ -17,6 +17,10 @@ let realtimeSocket = null;
 let heartbeatTimer = null;
 let html5QrScanner = null;
 let audioContext = null;
+let supabaseUrl = null;
+let supabaseAnonKey = null;
+let supabaseClient = null;
+let realtimeChannel = null;
 
 // --- UTILITY & NOTIFICATION FUNCTIONS ---
 
@@ -228,6 +232,8 @@ async function checkBackendHealth() {
   try {
     const res = await fetch('/api/health');
     const data = await res.json();
+    if (data.supabaseUrl) supabaseUrl = data.supabaseUrl;
+    if (data.supabaseAnonKey) supabaseAnonKey = data.supabaseAnonKey;
     if (!res.ok || data.error) {
       showToast(data.error || "Fehler beim Verbinden mit dem Cloudflare Worker / Supabase.", true);
     }
@@ -296,6 +302,10 @@ function clearSessionData() {
   contacts = [];
   myBurnerNumbers = [];
   activeContact = null;
+  if (realtimeChannel && supabaseClient) {
+    try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
+    realtimeChannel = null;
+  }
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
@@ -905,21 +915,114 @@ function getMyAllNumbers() {
   return list;
 }
 
+async function handleIncomingMessage(record) {
+  if (!record || !record.recipient_number) return;
+  const myNumbers = getMyAllNumbers();
+
+  if (myNumbers.includes(record.recipient_number)) {
+    const senderNumber = record.sender_number;
+    let contact = contacts.find(c => c.number === senderNumber);
+
+    if (!contact) {
+      contact = await addOrResolveContact(senderNumber);
+    }
+
+    const decryptedText = await decryptPayload(record.encrypted_payload, contact.sharedKey);
+
+    const msgObj = {
+      sender_number: senderNumber,
+      recipient_number: record.recipient_number,
+      text: decryptedText,
+      type: 'other',
+      timestamp: record.created_at ? new Date(record.created_at).getTime() : Date.now()
+    };
+
+    saveChatMessage(senderNumber, msgObj);
+    playSoundFeedback('receive');
+
+    if (activeContact && activeContact.number === senderNumber) {
+      appendMessageUI(msgObj);
+    } else {
+      showToast(`Neue E2EE Nachricht von ${senderNumber}!`);
+    }
+  }
+}
+
 function connectRealtimeWebSocket() {
   const dot = document.getElementById('realtime-status-dot');
+
+  if (realtimeChannel) {
+    try {
+      if (supabaseClient) supabaseClient.removeChannel(realtimeChannel);
+    } catch (e) {}
+    realtimeChannel = null;
+  }
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  // 1. Direct WebSocket Connection via Supabase JS Client (if configured)
+  if (window.supabase && supabaseUrl && supabaseAnonKey) {
+    try {
+      if (!supabaseClient) {
+        supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+      }
+
+      realtimeChannel = supabaseClient
+        .channel('schema-db-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages'
+          },
+          async (payload) => {
+            console.log('RECEIVED REALTIME PAYLOAD:', payload);
+            if (payload && payload.new) {
+              try {
+                await handleIncomingMessage(payload.new);
+              } catch (err) {
+                console.error('Error processing realtime payload:', err);
+              }
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          console.log('REALTIME STATUS:', status, err);
+          if (status === 'SUBSCRIBED') {
+            if (dot) {
+              dot.className = 'dot online';
+              dot.title = "Realtime Verbindung aktiv (SUBSCRIBED)";
+            }
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (dot) {
+              dot.className = 'dot offline';
+              dot.title = `Realtime Status: ${status}`;
+            }
+          }
+        });
+      return;
+    } catch (err) {
+      console.error('Error creating Supabase Realtime client:', err);
+    }
+  }
+
+  // 2. Fallback to HTTP Proxy / Local WebSocket server
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}/api/realtime`;
-
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
 
   try {
     realtimeSocket = new WebSocket(wsUrl);
 
     realtimeSocket.onopen = () => {
-      dot.className = 'dot online';
-      dot.title = "Realtime Verbindung aktiv";
+      console.log('REALTIME STATUS: WebSocket OPEN (Fallback)');
+      if (dot) {
+        dot.className = 'dot online';
+        dot.title = "Realtime Verbindung aktiv";
+      }
 
-      // 1. Join Supabase Realtime Phoenix channel for messages
       const joinMsg = {
         topic: "realtime:public:messages",
         event: "phx_join",
@@ -938,7 +1041,6 @@ function connectRealtimeWebSocket() {
       };
       realtimeSocket.send(JSON.stringify(joinMsg));
 
-      // 2. Start Phoenix heartbeat interval (every 25 seconds)
       heartbeatTimer = setInterval(() => {
         if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) {
           realtimeSocket.send(JSON.stringify({
@@ -954,54 +1056,35 @@ function connectRealtimeWebSocket() {
     realtimeSocket.onmessage = async (event) => {
       try {
         const message = JSON.parse(event.data);
+        console.log('RECEIVED REALTIME PAYLOAD (WS):', message);
         const payload = message.payload || {};
         const record = payload.record || (payload.data && payload.data.record) || payload.new;
 
         if (record && (message.event === 'postgres_changes' || message.event === 'INSERT' || payload.type === 'INSERT')) {
-          const myNumbers = getMyAllNumbers();
-
-          if (myNumbers.includes(record.recipient_number)) {
-            const senderNumber = record.sender_number;
-            let contact = contacts.find(c => c.number === senderNumber);
-
-            if (!contact) {
-              contact = await addOrResolveContact(senderNumber);
-            }
-
-            const decryptedText = await decryptPayload(record.encrypted_payload, contact.sharedKey);
-
-            const msgObj = {
-              sender_number: senderNumber,
-              recipient_number: record.recipient_number,
-              text: decryptedText,
-              type: 'other',
-              timestamp: new Date(record.created_at).getTime() || Date.now()
-            };
-
-            saveChatMessage(senderNumber, msgObj);
-            playSoundFeedback('receive');
-
-            if (activeContact && activeContact.number === senderNumber) {
-              appendMessageUI(msgObj);
-            } else {
-              showToast(`Neue E2EE Nachricht von ${senderNumber}!`);
-            }
-          }
+          await handleIncomingMessage(record);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Error processing WS message:', e);
+      }
     };
 
-    realtimeSocket.onerror = () => {
-      dot.className = 'dot offline';
-      dot.title = "Realtime Verbindung getrennt";
+    realtimeSocket.onerror = (err) => {
+      console.log('REALTIME STATUS: CHANNEL_ERROR', err);
+      if (dot) {
+        dot.className = 'dot offline';
+        dot.title = "Realtime Verbindung getrennt";
+      }
     };
 
     realtimeSocket.onclose = () => {
-      dot.className = 'dot offline';
+      console.log('REALTIME STATUS: CLOSED');
+      if (dot) {
+        dot.className = 'dot offline';
+      }
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       setTimeout(connectRealtimeWebSocket, 5000);
     };
   } catch (err) {
-    dot.className = 'dot offline';
+    if (dot) dot.className = 'dot offline';
   }
 }
