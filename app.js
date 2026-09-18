@@ -19,7 +19,10 @@ let realtimeSubscription = null;
 let html5QrScanner = null;
 let audioContext = null;
 
-// --- UTILITY: TOAST NOTIFICATIONS & AUDIO FEEDBACK ---
+// Fake internal domain for Supabase Auth without real emails
+const DUMMY_EMAIL_DOMAIN = '@aegischat.internal';
+
+// --- UTILITY FUNCTIONS ---
 
 function showToast(message) {
   const container = document.getElementById('toast-container');
@@ -164,9 +167,8 @@ async function encryptPrivateKey(privateKey, password) {
   });
 }
 
-// Decrypt Private Key (JWK) using User Password
-async function decryptPrivateKey(encryptedJsonStr, password) {
-  const encryptedData = JSON.parse(encryptedJsonStr);
+// Decrypt Private Key JWK with User Password
+async function unwrapPrivateKey(encryptedData, password) {
   const salt = new Uint8Array(atob(encryptedData.saltB64).split('').map(c => c.charCodeAt(0)));
   const iv = new Uint8Array(atob(encryptedData.ivB64).split('').map(c => c.charCodeAt(0)));
   const binaryEncrypted = atob(encryptedData.encryptedJwkB64);
@@ -288,6 +290,9 @@ const addContactBtn = document.getElementById('add-contact-btn');
 const scanQrBtn = document.getElementById('scan-qr-btn');
 const contactsList = document.getElementById('contacts-list');
 
+const scannerModal = document.getElementById('scanner-modal');
+const closeScannerModalBtn = document.getElementById('close-scanner-modal-btn');
+
 const chatHeader = document.getElementById('chat-header');
 const emptyState = document.getElementById('empty-state');
 const activeAvatar = document.getElementById('active-avatar');
@@ -295,6 +300,7 @@ const activeContactName = document.getElementById('active-contact-name');
 const sendAsSelect = document.getElementById('send-as-select');
 const messagesContainer = document.getElementById('messages-container');
 const sendMessageForm = document.getElementById('send-message-form');
+const senderNumberSelect = document.getElementById('sender-number-select');
 const messageInput = document.getElementById('message-input');
 
 const mobileToggleBtn = document.getElementById('mobile-toggle-btn');
@@ -379,11 +385,17 @@ document.addEventListener('DOMContentLoaded', () => {
       registerStatus.textContent = 'Bitte Nutzername und Passwort ausfüllen.';
       return;
     }
+    registerModal.classList.remove('hidden');
+  });
+  closeRegisterModalBtn.addEventListener('click', () => registerModal.classList.add('hidden'));
 
     if (password.length < 6) {
       registerStatus.textContent = 'Das Passwort muss mindestens 6 Zeichen lang sein.';
       return;
     }
+    loginModal.classList.remove('hidden');
+  });
+  closeLoginModalBtn.addEventListener('click', () => loginModal.classList.add('hidden'));
 
     submitRegisterBtn.disabled = true;
     registerStatus.textContent = 'Erstelle ECDH Schlüsselpaar & Supabase Account...';
@@ -611,19 +623,77 @@ function updateSenderDropdown() {
   });
 }
 
-function setupEventListeners() {
-  // Mobile sidebar navigation
-  if (mobileToggleBtn) {
-    mobileToggleBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('mobile-hidden');
-    });
+// --- LOGIN LOGIC ---
+
+async function handleLogin() {
+  const identifier = loginIdentifier.value.trim();
+  const password = loginPassword.value;
+
+  if (!identifier || !password) {
+    loginStatus.textContent = 'Bitte ID/Nutzername und Passwort eingeben.';
+    return;
   }
 
-  if (mobileBackBtn) {
-    mobileBackBtn.addEventListener('click', () => {
-      sidebar.classList.remove('mobile-hidden');
+  submitLoginBtn.disabled = true;
+  loginStatus.textContent = 'Melde an...';
+
+  try {
+    let usernameToLogin = identifier;
+
+    // Check if identifier is an 8-digit number -> query profiles table for corresponding username
+    if (/^\d{8}$/.test(identifier)) {
+      const { data: profileRow, error: pError } = await supabaseClient
+        .from('profiles')
+        .select('username')
+        .eq('main_number', identifier)
+        .maybeSingle();
+
+      if (pError || !profileRow) {
+        throw new Error('Kein Profil mit dieser 8-stelligen Haupt-ID gefunden.');
+      }
+      usernameToLogin = profileRow.username;
+    }
+
+    const email = `${usernameToLogin.toLowerCase()}${DUMMY_EMAIL_DOMAIN}`;
+
+    // 1. Supabase Auth Login
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+      email: email,
+      password: password
     });
+
+    if (authError) throw authError;
+
+    // 2. Fetch Profile Row from Supabase
+    const { data: profileRow, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', authData.user.id)
+      .single();
+
+    if (profileError || !profileRow) throw new Error("Profil nicht gefunden.");
+
+    loginStatus.textContent = 'Entschlüssele Private Key via PBKDF2...';
+
+    // 3. Unwrap Private Key locally
+    const privateKey = await unwrapPrivateKey(profileRow.encrypted_private_key, password);
+    const publicKey = await importPublicKey(profileRow.public_key);
+
+    currentProfile = profileRow;
+    decryptedKeyPair = { publicKey, privateKey };
+
+    loginStatus.textContent = 'Anmeldung erfolgreich!';
+    showToast('Erfolgreich angemeldet & Private Key entschlüsselt!');
+
+    loginModal.classList.add('hidden');
+    initMainChatUI();
+  } catch (err) {
+    console.error("Login Error:", err);
+    loginStatus.textContent = `Fehler: ${err.message || 'Anmeldung fehlgeschlagen.'}`;
+  } finally {
+    submitLoginBtn.disabled = false;
   }
+}
 
   // Manage Burners Modal Open
   manageBurnersBtn.addEventListener('click', () => {
@@ -675,6 +745,7 @@ function setupEventListeners() {
     } finally {
       generateBurnerBtn.disabled = false;
     }
+    return true;
   });
 
   // Show My Main QR Code Modal
@@ -710,8 +781,10 @@ function setupEventListeners() {
       ).catch(err => console.error(err));
     }
   });
+}
 
-  closeScannerModalBtn.addEventListener('click', stopScannerModal);
+async function createBurnerNumber() {
+  if (!supabaseClient || !currentProfile) return;
 
   // Add Contact / Start Chat
   addContactBtn.addEventListener('click', async () => {
@@ -797,7 +870,9 @@ function stopScannerModal() {
       html5QrScanner = null;
     }).catch(err => console.error(err));
   }
-  scannerModal.classList.add('hidden');
+
+  showToast(`Einweg-Nummer ${newBurnerNumber} erstellt!`);
+  await loadBurnerNumbers();
 }
 
 // --- BURNER ID MANAGEMENT & SUPABASE QUERYING ---
@@ -979,7 +1054,13 @@ function saveContactsToSession() {
 
 function renderContacts() {
   contactsList.innerHTML = '';
-  contacts.forEach(c => {
+
+  if (contactsMap.size === 0) {
+    contactsList.innerHTML = '<li class="empty-burner">Noch keine Chats vorhanden.</li>';
+    return;
+  }
+
+  contactsMap.forEach(c => {
     const li = document.createElement('li');
     li.className = `contact-item ${activeContact && activeContact.number === c.number ? 'active' : ''}`;
 
@@ -1045,6 +1126,7 @@ function appendMessageUI(msgObj) {
   const senderMeta = msgObj.type === 'own' ? `An: ${msgObj.recipient_number}` : `Von: ${msgObj.sender_number}`;
 
   div.innerHTML = `
+    ${senderMeta}
     <div>${escapeHtml(msgObj.text)}</div>
     <div class="msg-meta">
       <span>${senderMeta}</span>

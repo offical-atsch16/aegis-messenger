@@ -1,4 +1,4 @@
-/* AegisChat - Modern Glassmorphism & Responsive Theme */
+/* AegisChat - Modern Glassmorphism & Responsive Theme with Supabase & Burner IDs */
 :root {
   --bg-dark: #070a13;
   --panel-bg: rgba(15, 23, 42, 0.78);
@@ -13,6 +13,8 @@
   --input-bg: rgba(10, 15, 28, 0.65);
   --msg-own: linear-gradient(135deg, #6366f1, #4f46e5);
   --msg-other: rgba(30, 41, 59, 0.85);
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
   --font-main: 'Plus Jakarta Sans', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
@@ -154,6 +156,11 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 0 32px 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .brand {
@@ -663,9 +670,11 @@ input:focus, select:focus, textarea:focus {
 }
 
 .contact-item .contact-id {
-  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .contact-item .contact-type-tag {
@@ -815,6 +824,13 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--panel-border);
 }
 
+.msg-sender-num {
+  font-size: 10px;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  margin-bottom: 4px;
+}
+
 .msg-meta {
   font-size: 10px;
   opacity: 0.7;
@@ -917,6 +933,116 @@ input:focus, select:focus, textarea:focus {
   gap: 6px;
 }
 
+/* PROFILE & BURNER IDs MODAL */
+.profile-modal-card {
+  max-width: 520px;
+}
+
+.profile-modal-body {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.profile-card-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(10, 15, 28, 0.6);
+  border: 1px solid var(--panel-border);
+  padding: 14px 18px;
+  border-radius: 14px;
+}
+
+.mono-bold {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.burner-generator-box {
+  background: rgba(10, 15, 28, 0.4);
+  border: 1px solid var(--panel-border);
+  padding: 16px;
+  border-radius: 14px;
+}
+
+.burner-generator-box h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.inline-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.select-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.burner-list-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+}
+
+.burner-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.empty-burner {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.burner-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--panel-border);
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+.burner-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.burner-num {
+  font-size: 14px;
+}
+
+.burner-expiry {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.burner-item-actions {
+  display: flex;
+  gap: 6px;
+}
+
 /* Modals Overlay */
 .modal-overlay {
   position: fixed;
@@ -932,7 +1058,7 @@ input:focus, select:focus, textarea:focus {
 
 .modal-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   padding: 24px;
 }
 
