@@ -183,6 +183,11 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .header-btn {
   padding: 10px 18px;
   font-size: 13px;
@@ -243,6 +248,7 @@ body {
   display: flex;
   justify-content: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .cta-btn {
@@ -342,7 +348,7 @@ body {
   font-size: 12px;
 }
 
-/* POW & ANONYMOUS REGISTRATION SETUP CARD */
+/* SETUP / MODAL CARD STYLES */
 .setup-card {
   width: 100%;
   max-width: 440px;
@@ -376,7 +382,7 @@ label {
   width: 100%;
 }
 
-input, textarea {
+input, select, textarea {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--panel-border);
@@ -388,6 +394,21 @@ input, textarea {
   transition: all 0.2s ease;
 }
 
+select {
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px top 50%;
+  background-size: 10px auto;
+  padding-right: 32px;
+}
+
+option {
+  background: #0f172a;
+  color: var(--text-main);
+}
+
 textarea {
   resize: none;
   height: 60px;
@@ -395,7 +416,7 @@ textarea {
   font-size: 11px;
 }
 
-input:focus, textarea:focus {
+input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
@@ -436,6 +457,16 @@ input:focus, textarea:focus {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.danger-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
 .icon-btn {
   background: transparent;
   border: none;
@@ -458,59 +489,6 @@ input:focus, textarea:focus {
   margin-top: 14px;
   font-size: 13px;
   color: var(--accent-cyan);
-}
-
-/* Proof-of-Work Progress Box */
-.pow-progress-box {
-  background: rgba(10, 15, 28, 0.8);
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-}
-
-.pow-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--accent-cyan);
-  border-radius: 50%;
-  animation: powSpin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes powSpin {
-  to { transform: rotate(360deg); }
-}
-
-.pow-info {
-  flex: 1;
-}
-
-.pow-info span {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: block;
-  margin-bottom: 6px;
-}
-
-.pow-bar-bg {
-  width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.pow-bar {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(to right, var(--accent), var(--accent-cyan));
-  transition: width 0.15s ease;
 }
 
 /* APP CONTAINER & MAIN CHAT INTERFACE */
@@ -644,26 +622,6 @@ input:focus, textarea:focus {
   gap: 10px;
 }
 
-.or-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  margin: 2px 0;
-}
-
-.or-divider::before, .or-divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.or-divider span {
-  padding: 0 8px;
-}
-
 .btn-group {
   display: flex;
   gap: 8px;
@@ -708,6 +666,15 @@ input:focus, textarea:focus {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
+}
+
+.contact-item .contact-type-tag {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-cyan);
 }
 
 /* Footer / Branding in Sidebar */
@@ -765,6 +732,23 @@ input:focus, textarea:focus {
 
 .lock-icon {
   font-size: 11px;
+}
+
+.sender-select-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.sender-dropdown {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border-radius: 8px;
+  background: rgba(10, 15, 28, 0.85);
+  border: 1px solid var(--panel-border);
+  color: var(--accent-cyan);
+  outline: none;
 }
 
 .empty-state {
@@ -835,38 +819,9 @@ input:focus, textarea:focus {
   font-size: 10px;
   opacity: 0.7;
   margin-top: 4px;
-  text-align: right;
-}
-
-/* Typing Indicator */
-.typing-indicator {
-  padding: 8px 24px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.typing-dots {
-  display: flex;
-  gap: 4px;
-}
-
-.typing-dots span {
-  width: 6px;
-  height: 6px;
-  background: var(--accent-cyan);
-  border-radius: 50%;
-  animation: typingBounce 1.4s infinite ease-in-out both;
-}
-
-.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
-.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes typingBounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .message-input-area {
@@ -882,6 +837,84 @@ input:focus, textarea:focus {
   padding: 0;
   border-radius: 12px;
   flex-shrink: 0;
+}
+
+/* BURNER NUMBERS MANAGEMENT MODAL */
+.burner-card {
+  max-width: 520px;
+}
+
+.burner-creation-box {
+  background: rgba(10, 15, 28, 0.6);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.burner-creation-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.burner-select {
+  flex: 1;
+}
+
+.burner-list-section {
+  text-align: left;
+}
+
+.burner-list-section h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.6px;
+  margin-bottom: 10px;
+}
+
+.burner-list {
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.burner-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+}
+
+.burner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.burner-num {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.burner-expiry {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.burner-actions {
+  display: flex;
+  gap: 6px;
 }
 
 /* Modals Overlay */
