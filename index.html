@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AegisChat | E2EE Web Messenger mit Supabase & Burner IDs</title>
+  <title>AegisChat | Self-Hosted E2EE Supabase Messenger</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <!-- Supabase JS Client -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Supabase JS Client library -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- QR Code Generation & Scanner Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -36,8 +36,8 @@
         <span class="brand-title">AegisChat</span>
       </div>
       <div class="header-actions">
-        <button id="supabase-config-btn" class="btn secondary-btn header-btn" title="Supabase Verbindung konfigurieren">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <button id="open-config-btn" class="btn secondary-btn header-btn" title="Supabase Einstellungen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Supabase Config</span>
         </button>
         <a href="https://github.com/official-atsch16" target="_blank" rel="noopener noreferrer" class="btn secondary-btn header-btn">
@@ -50,21 +50,21 @@
     <!-- HERO SECTION -->
     <section class="hero-section">
       <div class="hero-badge">
-        <span class="badge-dot"></span> 100% Client-Side E2EE Web-Messenger mit Supabase
+        <span class="badge-dot"></span> Supabase Realtime + 100% Client-Side E2EE
       </div>
       <h1 class="hero-title">
-        Anonym chatten mit Burner IDs & Supabase.
+        Der erste Messenger ohne Spuren mit Burner-IDs.
       </h1>
       <p class="hero-subtitle">
-        100% Ende-zu-Ende verschlüsselt (ECDH P-256 / AES-GCM). Keine E-Mail oder Handynummer nötig. Supabase Backend mit Einweg-Nummern.
+        Authentifizierung & Realtime Messaging via Supabase. Ende-zu-Ende-Verschlüsselung (ECDH + AES-GCM) zu 100% clientseitig. Keine E-Mail oder Handynummer erforderlich.
       </p>
 
       <div class="hero-cta-group">
-        <button id="open-register-btn" class="btn primary-btn cta-btn">
+        <button id="show-register-modal-btn" class="btn primary-btn cta-btn">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
           <span>Konto Erstellen</span>
         </button>
-        <button id="open-login-btn" class="btn secondary-btn cta-btn">
+        <button id="show-login-modal-btn" class="btn secondary-btn cta-btn">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           <span>Anmelden</span>
         </button>
@@ -78,32 +78,32 @@
           <div class="feature-icon icon-cyan">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
           </div>
-          <h3>Keine E-Mail / Telefon</h3>
-          <p>Registriere dich nur mit Nutzername + Passwort. Es werden keine privaten Kontaktdaten verlangt.</p>
-        </div>
-
-        <div class="glass-card feature-card">
-          <div class="feature-icon icon-indigo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          </div>
-          <h3>Temporäre Burner IDs</h3>
-          <p>Erstelle Einweg-Nummern, die mit deiner Haupt-ID verknüpft sind und mit einem Klick verfallen oder gelöscht werden.</p>
+          <h3>Supabase Auth ohne E-Mail</h3>
+          <p>Registrierung und Login nur mit Nutzername & Passwort. Dem Konto wird automatisch eine feste 8-stellige Haupt-ID zugewiesen.</p>
         </div>
 
         <div class="glass-card feature-card">
           <div class="feature-icon icon-pink">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
           </div>
-          <h3>Key Wrapping (PBKDF2)</h3>
-          <p>Private Keys werden clientseitig mit deinem Passwort via PBKDF2 + AES-GCM verschlüsselt in Supabase gespeichert.</p>
+          <h3>Temporäre Einweg-Nummern</h3>
+          <p>Generiere unbegrenzt Burner IDs mit optionaler Ablaufzeit. Eingehende Nachrichten werden empfangen, ohne deine Haupt-ID zu enthüllen.</p>
+        </div>
+
+        <div class="glass-card feature-card">
+          <div class="feature-icon icon-indigo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <h3>100% Client-Side WebCrypto</h3>
+          <p>Private Keys werden lokal via PBKDF2 + AES-GCM verschlüsselt in Supabase abgelegt. Nachrichtenaustausch via ECDH (P-256) & AES-GCM.</p>
         </div>
 
         <div class="glass-card feature-card">
           <div class="feature-icon icon-emerald">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           </div>
-          <h3>Supabase Realtime</h3>
-          <p>Empfange Nachrichten in Echtzeit via WebSockets. Unentschlüsselte Daten liegen niemals im Klartext auf dem Server.</p>
+          <h3>Supabase Realtime Messaging</h3>
+          <p>Echtzeit-Push über Supabase WebSockets. Nach dem Ausloggen oder Schließen des Tabs wird der Schlüssel komplett aus dem RAM gelöscht.</p>
         </div>
       </div>
     </section>
@@ -124,32 +124,33 @@
 
   <!-- MODAL: SUPABASE CONFIGURATION -->
   <div id="config-modal" class="modal-overlay hidden">
-    <div class="glass-card modal-card">
+    <div class="glass-card setup-card modal-card">
       <div class="modal-header">
-        <h3>Supabase Einstellungen</h3>
+        <h3>Supabase Konfiguration</h3>
         <button id="close-config-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
       </div>
+      <p class="tagline">Trage die Verbindungsdaten deines Supabase-Projekts ein.</p>
       <form id="config-form" onsubmit="return false;">
         <div class="form-group">
           <label for="sb-url-input">Supabase Project URL</label>
           <div class="input-wrapper">
-            <input type="text" id="sb-url-input" placeholder="https://xyz.supabase.co">
+            <input type="text" id="sb-url-input" placeholder="https://your-project.supabase.co" autocomplete="off" required>
           </div>
         </div>
         <div class="form-group">
           <label for="sb-key-input">Supabase Anon Key</label>
           <div class="input-wrapper">
-            <input type="password" id="sb-key-input" placeholder="eyJhbGciOiJIUzI1NiI...">
+            <input type="password" id="sb-key-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." autocomplete="off" required>
           </div>
         </div>
         <button id="save-config-btn" type="button" class="btn primary-btn">
-          <span>Verbindung Speichern</span>
+          <span>Einstellungen Speichern</span>
         </button>
       </form>
     </div>
   </div>
 
-  <!-- MODAL: REGISTRATION (Supabase Auth + Client-Side E2EE Key Wrapping) -->
+  <!-- MODAL: REGISTRATION (Username + Password only) -->
   <div id="register-modal" class="modal-overlay hidden">
     <div class="glass-card setup-card modal-card">
       <div class="brand">
@@ -158,38 +159,38 @@
         </div>
         <h1>Neues Konto</h1>
       </div>
-      <p class="tagline">Keine E-Mail oder Handynummer nötig. Haupt-ID wird automatisch zugewiesen.</p>
+      <p class="tagline">Keine E-Mail oder Handynummer erforderlich. Du erhältst automatisch eine 8-stellige Haupt-ID.</p>
 
       <form id="register-form" onsubmit="return false;">
         <div class="form-group">
-          <label for="reg-username">Nutzername / Alias</label>
+          <label for="reg-username">Nutzername</label>
           <div class="input-wrapper">
-            <input type="text" id="reg-username" placeholder="z. B. Alex" autocomplete="username" maxlength="24" required>
+            <input type="text" id="reg-username" placeholder="z. B. cyber_alex" autocomplete="username" required>
           </div>
         </div>
 
         <div class="form-group">
-          <label for="reg-password">Passwort (Verschlüsselt Private Key via PBKDF2)</label>
+          <label for="reg-password">Passwort</label>
           <div class="input-wrapper">
-            <input type="password" id="reg-password" placeholder="Sicheres Passwort wählen..." autocomplete="new-password" required>
+            <input type="password" id="reg-password" placeholder="Sicheres Passwort vergeben..." autocomplete="new-password" required>
           </div>
         </div>
 
         <div class="modal-actions-btn">
           <button id="submit-register-btn" type="button" class="btn primary-btn">
-            <span>Konto Erstellen & E2EE Key Generieren</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+            <span>Konto Registrieren</span>
           </button>
           <button id="close-register-modal-btn" type="button" class="btn secondary-btn" style="margin-top: 8px;">
             <span>Abbrechen</span>
           </button>
         </div>
       </form>
-
       <div id="register-status" class="status-msg"></div>
     </div>
   </div>
 
-  <!-- MODAL: LOGIN -->
+  <!-- MODAL: LOGIN (Username/ID + Password) -->
   <div id="login-modal" class="modal-overlay hidden">
     <div class="glass-card setup-card modal-card">
       <div class="brand">
@@ -198,13 +199,13 @@
         </div>
         <h1>Anmelden</h1>
       </div>
-      <p class="tagline">Melde dich mit deinem Nutzername oder deiner 8-stelligen ID an.</p>
+      <p class="tagline">Gib deinen Nutzernamen oder deine 8-stellige Haupt-ID und dein Passwort ein.</p>
 
       <form id="login-form" onsubmit="return false;">
         <div class="form-group">
-          <label for="login-identifier">Nutzername oder 8-stellige ID</label>
+          <label for="login-user-identifier">Nutzername oder 8-stellige ID</label>
           <div class="input-wrapper">
-            <input type="text" id="login-identifier" placeholder="Nutzername oder ID" autocomplete="username" required>
+            <input type="text" id="login-user-identifier" placeholder="z. B. cyber_alex oder 83920194" autocomplete="username" required>
           </div>
         </div>
 
@@ -217,19 +218,19 @@
 
         <div class="modal-actions-btn">
           <button id="submit-login-btn" type="button" class="btn primary-btn">
-            <span>Anmelden & Session Entsperren</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            <span>Anmelden</span>
           </button>
           <button id="close-login-modal-btn" type="button" class="btn secondary-btn" style="margin-top: 8px;">
             <span>Abbrechen</span>
           </button>
         </div>
       </form>
-
       <div id="login-status" class="status-msg"></div>
     </div>
   </div>
 
-  <!-- MAIN APPLICATION CONTAINER (CHAT INTERFACE & PROFILE MANAGEMENT) -->
+  <!-- MAIN APPLICATION CONTAINER (CHAT INTERFACE & BURNER MANAGEMENT) -->
   <div id="app" class="app-container hidden">
 
     <!-- MAIN CHAT INTERFACE -->
@@ -241,10 +242,7 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
         <div class="mobile-brand">AegisChat</div>
-        <button id="mobile-profile-btn" class="icon-btn" title="Profil & Burner IDs">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </button>
-        <button id="mobile-logout-btn" class="icon-btn" title="Session Beenden">
+        <button id="mobile-logout-btn" class="icon-btn" title="Session Beenden & Abmelden">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         </button>
       </div>
@@ -257,18 +255,18 @@
           <div class="profile-info">
             <h3 id="my-username">Username</h3>
             <div class="id-badge">
-              <span class="dot online" id="ws-status-dot" title="Supabase Realtime aktiv"></span>
-              <span id="my-id">Haupt-ID: --------</span>
+              <span class="dot online" id="realtime-status-dot" title="Supabase Realtime Aktiv"></span>
+              <span id="my-id">ID: --------</span>
             </div>
           </div>
           <div class="profile-actions">
-            <button id="open-profile-btn" class="icon-btn" title="Profil & Burner IDs verwalten">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <button id="manage-burners-btn" class="icon-btn" title="Einweg-Nummern (Burner IDs) verwalten">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12A10 10 0 1 1 12 2v10z"/></svg>
             </button>
             <button id="show-qr-btn" class="icon-btn" title="Mein QR-Code anzeigen">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
             </button>
-            <button id="logout-btn" class="icon-btn desktop-only" title="Session Beenden">
+            <button id="logout-btn" class="icon-btn desktop-only" title="Abmelden & Key löschen">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             </button>
           </div>
@@ -276,16 +274,18 @@
 
         <!-- ADD CONTACT SECTION -->
         <div class="section-title">
-          <span>Kontakt Hinzufügen</span>
+          <span>Kontakt / Chat Hinzufügen</span>
         </div>
 
         <div class="add-contact-form">
-          <input type="text" id="peer-id-input" placeholder="8-stellige Haupt- oder Burner-ID" maxlength="8" autocomplete="off">
+          <div class="input-wrapper">
+            <input type="text" id="peer-number-input" placeholder="8-stellige ID / Burner-Nummer..." maxlength="8" autocomplete="off">
+          </div>
 
           <div class="btn-group">
             <button id="add-contact-btn" type="button" class="btn secondary-btn">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <span>Hinzufügen</span>
+              <span>Chat Öffnen</span>
             </button>
             <button id="scan-qr-btn" type="button" class="btn secondary-btn scan-btn" title="QR-Code mit Kamera scannen">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -325,6 +325,14 @@
               </span>
             </div>
           </div>
+          <div class="chat-header-actions" style="margin-left: auto;">
+            <div class="sender-select-wrapper">
+              <label for="send-as-select" style="font-size: 10px; margin-bottom: 2px;">Senden als:</label>
+              <select id="send-as-select" class="sender-dropdown">
+                <!-- Main ID & Active Burner IDs dynamically added -->
+              </select>
+            </div>
+          </div>
         </header>
 
         <!-- EMPTY STATE (NO CONTACT SELECTED) -->
@@ -333,7 +341,7 @@
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <h3>Kein Chat ausgewählt</h3>
-          <p>Wähle einen Kontakt aus oder füge eine 8-stellige Haupt- oder Burner ID hinzu, um eine Ende-zu-Ende verschlüsselte Unterhaltung zu starten.</p>
+          <p>Gib eine 8-stellige Haupt-ID oder Einweg-Nummer ein, um eine 100% E2EE-verschlüsselte Unterhaltung zu starten.</p>
         </div>
 
         <!-- MESSAGES FEED -->
@@ -343,68 +351,47 @@
 
         <!-- MESSAGE INPUT FORM -->
         <form id="send-message-form" class="message-input-area hidden">
-          <div class="sender-identity-selector">
-            <label for="sender-number-select">Absender:</label>
-            <select id="sender-number-select" class="sender-select">
-              <!-- Dynamically filled with Main ID and Active Burner IDs -->
-            </select>
-          </div>
-          <div class="message-input-wrapper">
-            <input type="text" id="message-input" placeholder="Schreibe eine sichere Nachricht..." autocomplete="off">
-            <button type="submit" id="send-btn" class="btn primary-btn send-btn" aria-label="Nachricht senden">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
-          </div>
+          <input type="text" id="message-input" placeholder="Schreibe eine sichere E2EE Nachricht..." autocomplete="off">
+          <button type="submit" id="send-btn" class="btn primary-btn send-btn" aria-label="Nachricht senden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
         </form>
       </main>
     </div>
   </div>
 
-  <!-- MODAL: PROFILE & DISPOSABLE NUMBERS (BURNER IDs) MANAGEMENT -->
-  <div id="profile-modal" class="modal-overlay hidden">
-    <div class="glass-card modal-card profile-modal-card">
+  <!-- MODAL: BURNER IDs (DISPOSABLE NUMBERS) MANAGEMENT -->
+  <div id="burner-modal" class="modal-overlay hidden">
+    <div class="glass-card modal-card burner-card">
       <div class="modal-header">
-        <h3>Profil & Temporäre Einweg-Nummern</h3>
-        <button id="close-profile-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
+        <h3>Temporäre Einweg-Nummern (Burner IDs)</h3>
+        <button id="close-burner-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
+      </div>
+      <p class="modal-subtext" style="text-align: left; margin-bottom: 16px;">
+        Erstelle anonyme Einweg-Nummern, die mit deinem Konto verknüpft sind. Nachrichten an diese Nummern landen in deinem Client, ohne dass deine reale Haupt-ID offen gelegt wird.
+      </p>
+
+      <div class="burner-creation-box">
+        <label for="burner-expiry-select">Gültigkeitsdauer</label>
+        <div class="burner-creation-row">
+          <select id="burner-expiry-select" class="burner-select">
+            <option value="none">Kein Verfall (Manuell löschen)</option>
+            <option value="1h">1 Stunde</option>
+            <option value="24h">24 Stunden</option>
+            <option value="7d">7 Tage</option>
+          </select>
+          <button id="generate-burner-btn" type="button" class="btn primary-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Neu Generieren</span>
+          </button>
+        </div>
       </div>
 
-      <div class="modal-body profile-modal-body">
-        <!-- Haupt-ID Display -->
-        <div class="profile-card-item">
-          <div class="item-info">
-            <span class="label">Deine Feste Haupt-ID:</span>
-            <span id="profile-main-id" class="mono-bold">--------</span>
-          </div>
-          <button id="qr-main-id-btn" class="btn secondary-btn small-btn">QR-Code</button>
-        </div>
-
-        <!-- Burner ID Generator Form -->
-        <div class="burner-generator-box">
-          <h4>Neue Einweg-Nummer (Burner ID) erstellen</h4>
-          <p class="subtext">Anonyme Nummer für temporäre Kontakte. Die Gegenpartei sieht nie deine Haupt-ID.</p>
-
-          <div class="form-group inline-group" style="margin-top: 10px;">
-            <label for="burner-ttl-select">Gültigkeitsdauer:</label>
-            <select id="burner-ttl-select" class="select-input">
-              <option value="never">Unbegrenzt (Manuell löschen)</option>
-              <option value="1h">1 Stunde</option>
-              <option value="24h">24 Stunden</option>
-              <option value="7d">7 Tage</option>
-            </select>
-            <button id="create-burner-btn" class="btn primary-btn small-btn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <span>Generieren</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Active Burner IDs List -->
-        <div class="burner-list-section">
-          <h4>Deine Aktiven Einweg-Nummern</h4>
-          <ul id="burner-list" class="burner-list">
-            <!-- Dynamically populated -->
-          </ul>
-        </div>
+      <div class="burner-list-section">
+        <h4>Deine Einweg-Nummern</h4>
+        <ul id="burner-list" class="burner-list">
+          <!-- Dynamically populated list of burner IDs -->
+        </ul>
       </div>
     </div>
   </div>
@@ -413,15 +400,15 @@
   <div id="qr-modal" class="modal-overlay hidden">
     <div class="glass-card modal-card">
       <div class="modal-header">
-        <h3 id="qr-modal-title">QR-Code für ID</h3>
+        <h3 id="qr-modal-title">Dein QR-Einladungscode</h3>
         <button id="close-qr-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
       </div>
       <div class="modal-body">
         <div id="qr-code-container" class="qr-container"></div>
-        <p class="modal-subtext" id="qr-modal-subtext">Lass deinen Gegenüber diesen QR-Code scannen, um direkt Kontakt aufzunehmen.</p>
-        <button id="copy-qr-id-btn" type="button" class="btn primary-btn" style="margin-top: 14px;">
+        <p class="modal-subtext" id="qr-modal-subtext">Lass deinen Gegenüber diesen QR-Code abscannen, um eure ID / Einweg-Nummer hinzuzufügen.</p>
+        <button id="copy-qr-number-btn" type="button" class="btn primary-btn" style="margin-top: 14px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          <span>ID Kopieren</span>
+          <span>Nummer Kopieren</span>
         </button>
       </div>
     </div>
