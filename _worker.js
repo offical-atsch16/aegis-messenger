@@ -35,7 +35,12 @@ export default {
     // 1. Health Check Endpoint
     if (url.pathname === '/api/health') {
       return new Response(
-        JSON.stringify({ status: 'ok', message: 'Supabase backend proxy configured properly.' }),
+        JSON.stringify({
+          status: 'ok',
+          message: 'Supabase backend proxy configured properly.',
+          supabaseUrl: supabaseUrl,
+          supabaseAnonKey: supabaseAnonKey
+        }),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
