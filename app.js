@@ -61,6 +61,35 @@ function playSoundFeedback(type) {
   }
 }
 
+// --- PROOF-OF-WORK (SHA-256 ANTI-SPAM TASK) ---
+
+async function computeProofOfWork(challengeSeed, difficulty = 3, onProgress) {
+  const enc = new TextEncoder();
+  const prefix = "0".repeat(difficulty); // e.g., "000" leading hex characters
+  let nonce = 0;
+  const batchSize = 500;
+
+  while (true) {
+    for (let i = 0; i < batchSize; i++) {
+      const candidate = `${challengeSeed}:${nonce}`;
+      const buffer = enc.encode(candidate);
+      const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+      if (hashHex.startsWith(prefix)) {
+        if (onProgress) onProgress(100, "Proof-of-Work verifiziert!");
+        return { nonce, hashHex };
+      }
+      nonce++;
+    }
+
+    const estimatedPercent = Math.min(98, Math.floor((nonce / 10000) * 100));
+    if (onProgress) onProgress(estimatedPercent, `SHA-256 Hash-Match... Nonce: ${nonce}`);
+    await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI thread to repaint
+  }
+}
+
 // --- WEBCRYPTO FUNCTIONS ---
 
 function generate8DigitId() {
@@ -237,14 +266,23 @@ function clearSession() {
 }
 
 // DOM Elements
-const setupScreen = document.getElementById('setup-screen');
-const unlockScreen = document.getElementById('unlock-screen');
-const chatScreen = document.getElementById('chat-screen');
+const landingPage = document.getElementById('landing-page');
+const startAnonChatBtn = document.getElementById('start-anon-chat-btn');
+
+const powModal = document.getElementById('pow-modal');
+const closePowModalBtn = document.getElementById('close-pow-modal-btn');
+const powProgressBox = document.getElementById('pow-progress-box');
+const powStatusText = document.getElementById('pow-status-text');
+const powBar = document.getElementById('pow-bar');
 
 const usernameInput = document.getElementById('username-input');
 const passwordInput = document.getElementById('password-input');
 const generateKeysBtn = document.getElementById('generate-keys-btn');
 const setupStatus = document.getElementById('setup-status');
+
+const appContainer = document.getElementById('app');
+const unlockScreen = document.getElementById('unlock-screen');
+const chatScreen = document.getElementById('chat-screen');
 
 const unlockPasswordInput = document.getElementById('unlock-password-input');
 const unlockBtn = document.getElementById('unlock-btn');
@@ -293,7 +331,20 @@ const closeScannerModalBtn = document.getElementById('close-scanner-modal-btn');
 document.addEventListener('DOMContentLoaded', () => {
   checkSessionState();
 
-  // Setup / Registration Handler
+  // Landing CTA Button -> Show PoW Registration Modal
+  if (startAnonChatBtn) {
+    startAnonChatBtn.addEventListener('click', () => {
+      powModal.classList.remove('hidden');
+    });
+  }
+
+  if (closePowModalBtn) {
+    closePowModalBtn.addEventListener('click', () => {
+      powModal.classList.add('hidden');
+    });
+  }
+
+  // Setup / PoW Registration Handler
   generateKeysBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
@@ -308,9 +359,21 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    setupStatus.textContent = 'Generiere RSA-2048 Schlüsselpaar & Verschlüssele Private Key...';
+    generateKeysBtn.disabled = true;
+    powProgressBox.classList.remove('hidden');
+    setupStatus.textContent = '';
 
     try {
+      // Step 1: Compute Proof-of-Work to defeat bot spam anonymously
+      const seed = `aegischat-${username}-${Date.now()}`;
+      await computeProofOfWork(seed, 3, (percent, statusMsg) => {
+        powBar.style.width = `${percent}%`;
+        powStatusText.textContent = statusMsg;
+      });
+
+      powStatusText.textContent = 'Generiere RSA-2048 Schlüsselpaar & Verschlüssele Private Key...';
+
+      // Step 2: Generate WebCrypto RSA Keys & 8-Digit Unique ID
       const keyPair = await generateKeyPair();
       const pubKeyB64 = await exportPublicKey(keyPair.publicKey);
       const encryptedPrivateKeyData = await encryptPrivateKey(keyPair.privateKey, password);
@@ -324,11 +387,15 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       saveSessionIdentity(username, id, pubKeyB64, encryptedPrivateKeyData);
+      powModal.classList.add('hidden');
       initMainChatUI();
-      showToast("Identität & Keys erfolgreich erstellt");
+      showToast("Proof-of-Work verifiziert! Identität & Keys erstellt.");
     } catch (e) {
       console.error(e);
-      setupStatus.textContent = 'Fehler beim Erstellen der Schlüssel.';
+      setupStatus.textContent = 'Fehler bei der Konto-Erstellung.';
+    } finally {
+      generateKeysBtn.disabled = false;
+      powProgressBox.classList.add('hidden');
     }
   });
 
@@ -359,6 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       };
 
+      appContainer.classList.remove('hidden');
       unlockScreen.classList.add('hidden');
       initMainChatUI();
       showToast("Session erfolgreich entschlüsselt");
@@ -379,11 +447,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function checkSessionState() {
   const stored = getStoredSessionIdentity();
   if (!stored) {
-    setupScreen.classList.remove('hidden');
+    landingPage.classList.remove('hidden');
+    appContainer.classList.add('hidden');
     unlockScreen.classList.add('hidden');
     chatScreen.classList.add('hidden');
   } else {
-    setupScreen.classList.add('hidden');
+    landingPage.classList.add('hidden');
+    appContainer.classList.remove('hidden');
     unlockScreen.classList.remove('hidden');
     chatScreen.classList.add('hidden');
     unlockUserTagline.textContent = `Willkommen zurück, ${stored.username}! Gib dein Passwort ein.`;
@@ -391,7 +461,9 @@ function checkSessionState() {
 }
 
 function initMainChatUI() {
-  setupScreen.classList.add('hidden');
+  landingPage.classList.add('hidden');
+  powModal.classList.add('hidden');
+  appContainer.classList.remove('hidden');
   unlockScreen.classList.add('hidden');
   chatScreen.classList.remove('hidden');
 
