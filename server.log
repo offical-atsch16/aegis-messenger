@@ -1,0 +1,10 @@
+[AegisChat Server] Server and WebSocket Relay running at http://localhost:8080
+[Relay] Client registered: 36055585
+[Relay] Error parsing message JSON: SyntaxError: Unexpected token '', "�" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at Socket.<anonymous> (/app/server.js:148:27)
+    at Socket.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at TCP.onStreamRead (node:internal/stream_base_commons:189:23)
