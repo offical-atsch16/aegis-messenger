@@ -188,3 +188,26 @@ CREATE POLICY "Admins can manage invite codes"
 -- Enable Realtime for messages and disposable_numbers tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.disposable_numbers;
+
+
+-- =========================================================
+-- SUPABASE STORAGE BUCKET & POLICIES
+-- =========================================================
+
+-- Create chat-attachments storage bucket
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('chat-attachments', 'chat-attachments', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- RLS policies for chat-attachments bucket
+CREATE POLICY "Anyone can upload to chat-attachments"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'chat-attachments');
+
+CREATE POLICY "Anyone can download from chat-attachments"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'chat-attachments');
+
+CREATE POLICY "Anyone can delete from chat-attachments"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'chat-attachments');

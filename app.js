@@ -32,7 +32,115 @@ let publicBannerConfig = null;
 // Privacy & Chat Settings State
 let activeSelfDestructTimer = 'off'; // 'off', '5m', '1h', '24h'
 let typingTimeout = null;
+
 let onboardingCurrentStep = 1;
+let selectedFile = null;
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function encryptFile(file, sharedKey, onProgress) {
+  const arrayBuffer = await file.arrayBuffer();
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertextBuffer = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    sharedKey,
+    arrayBuffer
+  );
+
+  const combinedBuffer = new Uint8Array(iv.byteLength + ciphertextBuffer.byteLength);
+  combinedBuffer.set(iv, 0);
+  combinedBuffer.set(new Uint8Array(ciphertextBuffer), iv.byteLength);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload', true);
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          resolve(res);
+        } catch (e) {
+          reject(new Error('Ungültige Antwort vom Server beim Upload.'));
+        }
+      } else {
+        reject(new Error(`Upload-Fehler (${xhr.status})`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Netzwerkfehler beim Upload.'));
+    xhr.send(combinedBuffer);
+  });
+}
+
+async function fetchAndDecryptFileBlob(fileUrl, sharedKey, mimeType) {
+  const res = await fetch(fileUrl);
+  if (!res.ok) throw new Error('Datei konnte nicht geladen werden.');
+  const encryptedBuffer = await res.arrayBuffer();
+
+  if (encryptedBuffer.byteLength < 12) {
+    throw new Error('Ungültige verschlüsselte Datei.');
+  }
+
+  const iv = new Uint8Array(encryptedBuffer, 0, 12);
+  const ciphertext = new Uint8Array(encryptedBuffer, 12);
+
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: iv },
+    sharedKey,
+    ciphertext
+  );
+
+  const blob = new Blob([decryptedBuffer], { type: mimeType || 'application/octet-stream' });
+  return URL.createObjectURL(blob);
+}
+
+function openLightbox(imgSrc, fileName) {
+  const modal = document.getElementById('lightbox-modal');
+  const img = document.getElementById('lightbox-img');
+  const nameEl = document.getElementById('lightbox-filename');
+  const dlBtn = document.getElementById('lightbox-download-btn');
+
+  if (!modal || !img) return;
+  img.src = imgSrc;
+  if (nameEl) nameEl.textContent = fileName || 'Foto';
+  if (dlBtn) {
+    dlBtn.href = imgSrc;
+    dlBtn.download = fileName || 'photo.png';
+  }
+  modal.classList.remove('hidden');
+}
+
+function clearSelectedFile() {
+  selectedFile = null;
+  const fileInput = document.getElementById('file-input');
+  if (fileInput) fileInput.value = '';
+  const previewBar = document.getElementById('file-preview-bar');
+  if (previewBar) previewBar.classList.add('hidden');
+  const progressContainer = document.getElementById('upload-progress-container');
+  if (progressContainer) progressContainer.classList.add('hidden');
+  const progressBar = document.getElementById('upload-progress-bar');
+  if (progressBar) progressBar.style.width = '0%';
+}
+
 
 // --- UTILITY & NOTIFICATION FUNCTIONS ---
 
@@ -544,6 +652,37 @@ function setupEventListeners() {
   // Messaging Form & Contact Addition
   document.getElementById('add-contact-btn').addEventListener('click', handleAddContact);
   document.getElementById('send-message-form').addEventListener('submit', handleSendMessage);
+
+  // File Upload Attachments & Lightbox
+  const attachBtn = document.getElementById('attach-file-btn');
+  const fileInput = document.getElementById('file-input');
+  const cancelFileBtn = document.getElementById('cancel-file-btn');
+  const closeLightboxBtn = document.getElementById('close-lightbox-btn');
+  const lightboxModal = document.getElementById('lightbox-modal');
+
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        document.getElementById('file-preview-name').textContent = file.name;
+        document.getElementById('file-preview-size').textContent = formatFileSize(file.size);
+        document.getElementById('file-preview-bar').classList.remove('hidden');
+      }
+    });
+  }
+
+  if (cancelFileBtn) {
+    cancelFileBtn.addEventListener('click', clearSelectedFile);
+  }
+
+  if (closeLightboxBtn && lightboxModal) {
+    closeLightboxBtn.addEventListener('click', () => lightboxModal.classList.add('hidden'));
+    lightboxModal.addEventListener('click', (e) => {
+      if (e.target === lightboxModal) lightboxModal.classList.add('hidden');
+    });
+  }
 
   // Self Destruct Timer Selector
   document.getElementById('self-destruct-select').addEventListener('change', (e) => {
@@ -1619,13 +1758,35 @@ async function handleSendMessage(e) {
   e.preventDefault();
   const input = document.getElementById('message-input');
   const text = input.value.trim();
-  if (!text || !activeContact) return;
+  if ((!text && !selectedFile) || !activeContact) return;
+
+  const progressContainer = document.getElementById('upload-progress-container');
+  const progressBar = document.getElementById('upload-progress-bar');
 
   try {
     const senderNumber = document.getElementById('send-as-select').value || currentUser.main_number;
     const recipientNumber = activeContact.number;
+    let payloadText = text;
 
-    const encryptedPayloadStr = await encryptPayload(text, activeContact.sharedKey);
+    if (selectedFile) {
+      if (progressContainer) progressContainer.classList.remove('hidden');
+      if (progressBar) progressBar.style.width = '0%';
+
+      const uploadResult = await encryptFile(selectedFile, activeContact.sharedKey, (percent) => {
+        if (progressBar) progressBar.style.width = `${percent}%`;
+      });
+
+      payloadText = JSON.stringify({
+        type: 'file',
+        file_url: uploadResult.file_url,
+        file_name: selectedFile.name,
+        file_size: selectedFile.size,
+        mime_type: selectedFile.type || 'application/octet-stream',
+        caption: text
+      });
+    }
+
+    const encryptedPayloadStr = await encryptPayload(payloadText, activeContact.sharedKey);
 
     const res = await fetch('/api/messages', {
       method: 'POST',
@@ -1653,7 +1814,7 @@ async function handleSendMessage(e) {
       id: generate8DigitId(),
       sender_number: senderNumber,
       recipient_number: recipientNumber,
-      text: text,
+      text: payloadText,
       type: 'own',
       timestamp: Date.now(),
       expiresAt: expiresAt,
@@ -1663,6 +1824,7 @@ async function handleSendMessage(e) {
     appendMessageUI(msgObj, true);
     saveChatMessage(recipientNumber, msgObj);
     input.value = '';
+    clearSelectedFile();
     playSoundFeedback('send');
 
     if (expiresAt) {
@@ -1670,6 +1832,9 @@ async function handleSendMessage(e) {
     }
   } catch (err) {
     showToast(err.message, true);
+  } finally {
+    if (progressContainer) progressContainer.classList.add('hidden');
+    if (progressBar) progressBar.style.width = '0%';
   }
 }
 
@@ -1746,9 +1911,78 @@ function appendMessageUI(msgObj, isNew = false) {
   const tickIcon = msgObj.type === 'own' ? '<span class="msg-tick" title="Verschlüsselt gesendet">✓✓</span>' : '';
   const timerBadge = msgObj.expiresAt ? '<span style="font-size: 10px; margin-right: 4px;" title="Selbstzerstörung aktiv">⏱️</span>' : '';
 
+  let messageContentHtml = '';
+  let isFileMessage = false;
+  let fileMeta = null;
+
+  try {
+    if (msgObj.text && msgObj.text.startsWith('{')) {
+      const parsed = JSON.parse(msgObj.text);
+      if (parsed && parsed.type === 'file' && parsed.file_url) {
+        isFileMessage = true;
+        fileMeta = parsed;
+      }
+    }
+  } catch (e) {}
+
+  if (isFileMessage && fileMeta) {
+    const attachmentContainerId = `attach-${msgObj.id || Math.random().toString(36).substr(2, 9)}`;
+    messageContentHtml = `
+      <div id="${attachmentContainerId}">
+        <div class="file-loading-spinner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <span>Entschlüssele Datei...</span>
+        </div>
+      </div>
+    `;
+
+    const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
+    const contact = contacts.find(c => c.number === contactNum);
+
+    if (contact && contact.sharedKey) {
+      fetchAndDecryptFileBlob(fileMeta.file_url, contact.sharedKey, fileMeta.mime_type)
+        .then(objectUrl => {
+          const targetEl = document.getElementById(attachmentContainerId);
+          if (!targetEl) return;
+
+          if (fileMeta.mime_type && fileMeta.mime_type.startsWith('image/')) {
+            targetEl.innerHTML = `
+              <div class="media-card">
+                <img src="${objectUrl}" class="media-card-img" alt="${escapeHtml(fileMeta.file_name)}" onclick="openLightbox('${objectUrl}', '${escapeHtml(fileMeta.file_name)}')">
+              </div>
+              ${fileMeta.caption ? `<div style="margin-top: 4px;">${escapeHtml(fileMeta.caption)}</div>` : ''}
+            `;
+          } else {
+            targetEl.innerHTML = `
+              <a href="${objectUrl}" download="${escapeHtml(fileMeta.file_name)}" class="file-attachment-card">
+                <svg class="file-attachment-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div class="file-attachment-info">
+                  <span class="file-attachment-name">${escapeHtml(fileMeta.file_name)}</span>
+                  <span class="file-attachment-size">${formatFileSize(fileMeta.file_size)}</span>
+                </div>
+                <div class="file-attachment-dl-btn">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+              </a>
+              ${fileMeta.caption ? `<div style="margin-top: 4px;">${escapeHtml(fileMeta.caption)}</div>` : ''}
+            `;
+          }
+          container.scrollTop = container.scrollHeight;
+        })
+        .catch(err => {
+          const targetEl = document.getElementById(attachmentContainerId);
+          if (targetEl) {
+            targetEl.innerHTML = `<div class="file-loading-spinner" style="color: var(--danger);">Fehler beim Entschlüsseln der Datei.</div>`;
+          }
+        });
+    }
+  } else {
+    messageContentHtml = `<div>${escapeHtml(msgObj.text)}</div>`;
+  }
+
   div.innerHTML = `
     <div style="font-size: 11px; opacity: 0.8; font-family: var(--font-mono); margin-bottom: 2px;">${senderMeta}</div>
-    <div>${escapeHtml(msgObj.text)}</div>
+    ${messageContentHtml}
     <div class="msg-meta">
       ${timerBadge}
       <span>${time}</span>

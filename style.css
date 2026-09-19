@@ -1310,286 +1310,200 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
-/* =========================================================
-   GLOBAL BANNER STYLES
-   ========================================================= */
-.global-banner {
-  width: 100%;
-  padding: 10px 20px;
+/* --- FILE UPLOAD & ATTACHMENT STYLES --- */
+
+.attach-btn {
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+  margin-right: 4px;
+}
+
+.attach-btn:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.file-preview-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: relative;
-  z-index: 999;
-  font-size: 13px;
-  font-weight: 500;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-  border-bottom: 1px solid var(--panel-border);
-  animation: slideDownBanner 0.3s ease-out;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  padding: 10px 16px;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  backdrop-filter: blur(10px);
 }
 
-@keyframes slideDownBanner {
-  from { transform: translateY(-100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.banner-content {
+.file-preview-info {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: 1;
+  color: var(--accent);
 }
 
-.banner-badge {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 3px 10px;
-  border-radius: 20px;
-  letter-spacing: 0.5px;
-}
-
-.banner-type-info {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.4);
-  color: #38bdf8;
-}
-.banner-type-info .banner-badge {
-  background: rgba(6, 182, 212, 0.25);
-  color: #06b6d4;
-}
-
-.banner-type-warning {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
-}
-.banner-type-warning .banner-badge {
-  background: rgba(245, 158, 11, 0.25);
-  color: #f59e0b;
-}
-
-.banner-type-beta {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.4);
-  color: #c084fc;
-}
-.banner-type-beta .banner-badge {
-  background: rgba(168, 85, 247, 0.25);
-  color: #a855f7;
-}
-
-.banner-close-btn {
-  font-size: 18px;
-  line-height: 1;
-  padding: 4px 8px;
-}
-
-/* =========================================================
-   ADMIN DASHBOARD STYLES
-   ========================================================= */
-.admin-dashboard-card {
-  max-width: 840px !important;
-  max-height: 90vh;
-  overflow-y: auto;
-  text-align: left;
-}
-
-.admin-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  background: rgba(10, 15, 28, 0.6);
-  border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  padding: 16px 20px;
+.file-preview-details {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
 }
 
-.stat-value {
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--accent-cyan);
-  font-family: var(--font-mono);
+.file-preview-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
 }
 
-.stat-label {
-  font-size: 12px;
+.file-preview-size {
+  font-size: 0.75rem;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 4px;
 }
 
-.admin-section {
-  padding: 20px 0;
-  border-top: 1px solid var(--panel-border);
+.upload-progress-container {
+  width: 100%;
+  height: 4px;
+  background: var(--surface-hover);
+  overflow: hidden;
 }
 
-.admin-section h4 {
-  font-size: 15px;
-  font-weight: 700;
-  margin-bottom: 12px;
-  color: var(--text-main);
+.upload-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  transition: width 0.2s ease;
 }
 
-.admin-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
+/* Encrypted Attachment Cards in Chat */
+.media-card {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-width: 280px;
 }
 
-.admin-toggle-row {
+.media-card-img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: transform 0.2s ease;
+}
+
+.media-card-img:hover {
+  transform: scale(1.02);
+}
+
+.file-attachment-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  margin-top: 6px;
+  margin-bottom: 6px;
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: var(--transition-fast);
 }
 
-/* TOGGLE SWITCH UI */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 48px;
-  height: 26px;
+.file-attachment-card:hover {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: var(--accent);
+}
+
+.file-attachment-icon {
+  color: var(--accent);
   flex-shrink: 0;
 }
 
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background-color: rgba(255, 255, 255, 0.15);
-  transition: .3s;
-  border: 1px solid var(--panel-border);
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: .3s;
-}
-
-input:checked + .slider {
-  background-color: var(--accent);
-}
-
-input:checked + .slider:before {
-  transform: translateX(22px);
-}
-
-.slider.round {
-  border-radius: 34px;
-}
-
-.slider.round:before {
-  border-radius: 50%;
-}
-
-/* ADMIN INVITE & BANNER CONTROLS */
-.admin-invite-controls {
+.file-attachment-info {
   display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.inline-form-group {
-  margin-bottom: 0 !important;
-  flex: 1;
-  min-width: 160px;
-}
-
-.inline-btn {
-  width: auto !important;
+.file-attachment-name {
+  font-size: 0.85rem;
+  font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.admin-banner-row {
+.file-attachment-size {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.file-attachment-dl-btn {
+  margin-left: auto;
+  color: var(--accent-light);
+  flex-shrink: 0;
+}
+
+/* Lightbox Modal */
+.lightbox-card {
+  max-width: 90vw;
+  max-height: 90vh;
   display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-modal);
+}
+
+.lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lightbox-filename {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lightbox-actions {
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
 
-.flex-1 { flex: 1; }
-
-/* TABLES FOR ADMIN */
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
+.lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  overflow: auto;
 }
 
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  margin-top: 10px;
+.lightbox-body img {
+  max-width: 85vw;
+  max-height: 75vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
 }
 
-.admin-table th, .admin-table td {
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.admin-table th {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+.file-loading-spinner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  letter-spacing: 0.6px;
-  background: rgba(10, 15, 28, 0.4);
-}
-
-.admin-table td {
-  color: var(--text-main);
-  font-family: var(--font-mono);
-}
-
-.status-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 12px;
-  text-transform: uppercase;
-}
-
-.badge-active {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-}
-
-.badge-inactive {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-}
-
-.badge-admin {
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
-}
-
-.badge-user {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-muted);
+  padding: 8px 0;
 }
