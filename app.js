@@ -1,5 +1,5 @@
 // AegisChat Client Application Logic
-// Zero-Knowledge Architecture & WebCrypto E2EE
+// Zero-Knowledge Architecture & WebCrypto E2EE with Admin Dashboard & Invite System
 
 // Storage Keys
 const SESSION_KEY = 'aegis_session';
@@ -8,6 +8,7 @@ const LOCAL_ONBOARDED_KEY = 'aegis_onboarded_v1';
 
 // App State
 let currentUser = null; // { id, username, main_number }
+let userProfile = null; // { is_admin, is_disabled, ... }
 let accessToken = null;
 let localKeyPair = null; // { publicKey, privateKey }
 let localPubKeyB64 = null;
@@ -22,6 +23,11 @@ let supabaseUrl = null;
 let supabaseAnonKey = null;
 let supabaseClient = null;
 let realtimeChannel = null;
+
+// Public System Settings & Invite State
+let publicRequireInviteCode = false;
+let verifiedInviteCode = null;
+let publicBannerConfig = null;
 
 // Privacy & Chat Settings State
 let activeSelfDestructTimer = 'off'; // 'off', '5m', '1h', '24h'
@@ -82,7 +88,7 @@ function generate8DigitId() {
 }
 
 function escapeHtml(text) {
-  return String(text)
+  return String(text || '')
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -232,7 +238,7 @@ async function decryptPayload(payloadJsonStr, sharedKey) {
   return new TextDecoder().decode(decryptedBuffer);
 }
 
-// --- BACKEND HEALTH CHECK ---
+// --- BACKEND HEALTH & PUBLIC SETTINGS CHECK ---
 
 async function checkBackendHealth() {
   try {
@@ -248,12 +254,67 @@ async function checkBackendHealth() {
   }
 }
 
+async function fetchPublicSettings() {
+  try {
+    const res = await fetch('/api/settings/public');
+    if (res.ok) {
+      const data = await res.json();
+      publicRequireInviteCode = !!data.require_invite_code;
+      publicBannerConfig = data.banner_config || null;
+      renderGlobalBanner();
+    }
+  } catch (err) {
+    console.error("Fetch public settings error:", err);
+  }
+}
+
+function renderGlobalBanner() {
+  const bannerEl = document.getElementById('global-banner');
+  if (!bannerEl) return;
+
+  if (!publicBannerConfig || !publicBannerConfig.enabled || !publicBannerConfig.text) {
+    bannerEl.classList.add('hidden');
+    return;
+  }
+
+  const isHome = !currentUser;
+  const isGlobal = publicBannerConfig.location === 'global';
+
+  if (!isGlobal && !isHome) {
+    bannerEl.classList.add('hidden');
+    return;
+  }
+
+  bannerEl.className = `global-banner banner-type-${publicBannerConfig.type || 'info'}`;
+
+  const badgeEl = document.getElementById('banner-badge');
+  const textEl = document.getElementById('banner-text');
+
+  if (badgeEl) {
+    if (publicBannerConfig.type === 'warning') badgeEl.textContent = 'Achtung';
+    else if (publicBannerConfig.type === 'beta') badgeEl.textContent = 'Beta';
+    else badgeEl.textContent = 'Info';
+  }
+
+  if (textEl) {
+    textEl.textContent = publicBannerConfig.text;
+  }
+
+  bannerEl.classList.remove('hidden');
+}
+
 // --- INITIALIZATION & SESSION MANAGEMENT ---
 
 document.addEventListener('DOMContentLoaded', async () => {
   await checkBackendHealth();
+  await fetchPublicSettings();
   checkSessionState();
   setupEventListeners();
+
+  // Check URL route for Admin Dashboard (/admin/dashboard)
+  if (window.location.pathname === '/admin/dashboard') {
+    openAdminDashboard();
+  }
 });
 
 function checkSessionState() {
@@ -262,6 +323,7 @@ function checkSessionState() {
     try {
       const sess = JSON.parse(sessionStr);
       currentUser = sess.user;
+      userProfile = sess.profile || null;
       accessToken = sess.accessToken;
       localPubKeyB64 = sess.pubKeyB64;
 
@@ -283,6 +345,7 @@ function checkSessionState() {
 
   document.getElementById('landing-page').classList.remove('hidden');
   document.getElementById('app').classList.add('hidden');
+  renderGlobalBanner();
 }
 
 async function saveSessionData() {
@@ -292,6 +355,7 @@ async function saveSessionData() {
 
   const sessionObj = {
     user: currentUser,
+    profile: userProfile,
     accessToken: accessToken,
     pubKeyB64: localPubKeyB64,
     privKeyJwkB64: privKeyJwkB64
@@ -300,15 +364,16 @@ async function saveSessionData() {
 }
 
 function clearSessionData() {
-  // Wipe session storage and keys from JS memory
   sessionStorage.clear();
   currentUser = null;
+  userProfile = null;
   accessToken = null;
   localKeyPair = null;
   localPubKeyB64 = null;
   contacts = [];
   myBurnerNumbers = [];
   activeContact = null;
+  verifiedInviteCode = null;
 
   if (realtimeChannel && supabaseClient) {
     try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
@@ -324,9 +389,10 @@ function clearSessionData() {
   }
   document.getElementById('landing-page').classList.remove('hidden');
   document.getElementById('app').classList.add('hidden');
+  renderGlobalBanner();
 }
 
-// --- ONBOARDING TOUR LOGIC (BLOCK 1) ---
+// --- ONBOARDING TOUR LOGIC ---
 
 function showOnboardingTour() {
   onboardingCurrentStep = 1;
@@ -367,17 +433,59 @@ function setupEventListeners() {
   const regModal = document.getElementById('register-modal');
   const loginModal = document.getElementById('login-modal');
 
-  showRegBtn.addEventListener('click', () => regModal.classList.remove('hidden'));
+  showRegBtn.addEventListener('click', openRegisterModal);
   document.getElementById('close-register-modal-btn').addEventListener('click', () => regModal.classList.add('hidden'));
+  const closeRegBtn1 = document.getElementById('close-register-modal-btn-1');
+  if (closeRegBtn1) closeRegBtn1.addEventListener('click', () => regModal.classList.add('hidden'));
 
   showLoginBtn.addEventListener('click', () => loginModal.classList.remove('hidden'));
   document.getElementById('close-login-modal-btn').addEventListener('click', () => loginModal.classList.add('hidden'));
 
+  document.getElementById('verify-invite-code-btn').addEventListener('click', handleVerifyInviteCode);
   document.getElementById('submit-register-btn').addEventListener('click', handleRegistration);
   document.getElementById('submit-login-btn').addEventListener('click', handleLogin);
 
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   document.getElementById('mobile-logout-btn').addEventListener('click', handleLogout);
+
+  // Banner close button
+  const closeBannerBtn = document.getElementById('close-banner-btn');
+  if (closeBannerBtn) {
+    closeBannerBtn.addEventListener('click', () => {
+      const bannerEl = document.getElementById('global-banner');
+      if (bannerEl) bannerEl.classList.add('hidden');
+    });
+  }
+
+  // Admin Dashboard Open / Close
+  const openAdminBtn = document.getElementById('open-admin-btn');
+  const mobileAdminBtn = document.getElementById('mobile-admin-btn');
+  if (openAdminBtn) openAdminBtn.addEventListener('click', openAdminDashboard);
+  if (mobileAdminBtn) mobileAdminBtn.addEventListener('click', openAdminDashboard);
+
+  const closeAdminBtn = document.getElementById('close-admin-modal-btn');
+  if (closeAdminBtn) closeAdminBtn.addEventListener('click', closeAdminDashboard);
+
+  // Admin Controls Listeners
+  const requireInviteToggle = document.getElementById('admin-require-invite-toggle');
+  if (requireInviteToggle) requireInviteToggle.addEventListener('change', handleToggleRequireInvite);
+
+  const inviteTypeSelect = document.getElementById('admin-invite-type-select');
+  if (inviteTypeSelect) {
+    inviteTypeSelect.addEventListener('change', (e) => {
+      const wrapper = document.getElementById('admin-invite-uses-wrapper');
+      if (wrapper) {
+        if (e.target.value === 'multi') wrapper.classList.remove('hidden');
+        else wrapper.classList.add('hidden');
+      }
+    });
+  }
+
+  const generateInviteBtn = document.getElementById('admin-generate-invite-btn');
+  if (generateInviteBtn) generateInviteBtn.addEventListener('click', handleAdminGenerateInvite);
+
+  const saveBannerBtn = document.getElementById('admin-save-banner-btn');
+  if (saveBannerBtn) saveBannerBtn.addEventListener('click', handleAdminSaveBanner);
 
   // Emergency Lock / Panic Buttons
   document.getElementById('panic-lock-btn').addEventListener('click', handleEmergencyLock);
@@ -484,7 +592,66 @@ function setupEventListeners() {
   });
 }
 
-// --- REGISTRATION & LOGIN LOGIC ---
+// --- REGISTRATION & INVITE CODE VERIFICATION ---
+
+function openRegisterModal() {
+  document.getElementById('register-status').textContent = '';
+  document.getElementById('reg-username').value = '';
+  document.getElementById('reg-password').value = '';
+  document.getElementById('reg-invite-code').value = '';
+
+  const inviteStep = document.getElementById('register-invite-step');
+  const credsStep = document.getElementById('register-credentials-step');
+
+  if (publicRequireInviteCode && !verifiedInviteCode) {
+    inviteStep.classList.remove('hidden');
+    credsStep.classList.add('hidden');
+  } else {
+    inviteStep.classList.add('hidden');
+    credsStep.classList.remove('hidden');
+  }
+
+  document.getElementById('register-modal').classList.remove('hidden');
+}
+
+async function handleVerifyInviteCode() {
+  const inputCode = document.getElementById('reg-invite-code').value.trim();
+  const statusEl = document.getElementById('register-status');
+  const verifyBtn = document.getElementById('verify-invite-code-btn');
+
+  if (!inputCode) {
+    statusEl.textContent = 'Bitte Einladungscode eingeben.';
+    return;
+  }
+
+  verifyBtn.disabled = true;
+  statusEl.textContent = 'Prüfe Einladungscode...';
+
+  try {
+    const res = await fetch('/api/invite/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: inputCode })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.valid) {
+      throw new Error(data.error || 'Ungültiger Einladungscode.');
+    }
+
+    verifiedInviteCode = inputCode.toUpperCase();
+    statusEl.textContent = '';
+    showToast("Einladungscode akzeptiert! Bitte wähle Nutzername & Passwort.");
+
+    document.getElementById('register-invite-step').classList.add('hidden');
+    document.getElementById('register-credentials-step').classList.remove('hidden');
+  } catch (err) {
+    statusEl.textContent = err.message;
+    showToast(err.message, true);
+  } finally {
+    verifyBtn.disabled = false;
+  }
+}
 
 async function handleRegistration() {
   const username = document.getElementById('reg-username').value.trim();
@@ -518,7 +685,8 @@ async function handleRegistration() {
         password: password,
         main_number: mainNumber,
         encrypted_private_key: encryptedPrivateKeyStr,
-        public_key: pubKeyB64
+        public_key: pubKeyB64,
+        invite_code: verifiedInviteCode
       })
     });
 
@@ -528,6 +696,7 @@ async function handleRegistration() {
     }
 
     currentUser = data.user;
+    userProfile = data.profile || null;
     accessToken = data.access_token;
     localKeyPair = keyPair;
     localPubKeyB64 = pubKeyB64;
@@ -537,7 +706,6 @@ async function handleRegistration() {
     showToast(`Registrierung erfolgreich! Haupt-ID: ${mainNumber}`);
     initMainChatUI();
 
-    // Check onboarding flag for newly registered user
     if (!localStorage.getItem(LOCAL_ONBOARDED_KEY)) {
       showOnboardingTour();
     }
@@ -582,6 +750,7 @@ async function handleLogin() {
     const publicKey = await importPublicKey(data.profile.public_key);
 
     currentUser = data.user;
+    userProfile = data.profile;
     accessToken = data.access_token;
     localKeyPair = { publicKey, privateKey };
     localPubKeyB64 = data.profile.public_key;
@@ -590,6 +759,10 @@ async function handleLogin() {
     document.getElementById('login-modal').classList.add('hidden');
     showToast("Erfolgreich angemeldet!");
     initMainChatUI();
+
+    if (window.location.pathname === '/admin/dashboard') {
+      openAdminDashboard();
+    }
   } catch (err) {
     statusEl.textContent = `Fehler: ${err.message}`;
     showToast(err.message, true);
@@ -599,7 +772,6 @@ async function handleLogin() {
 }
 
 function handleLogout() {
-  // Clear unread temporary messages from Supabase on logout
   cleanupTemporaryUnreadMessages();
   clearSessionData();
   showToast("Abgemeldet & Keys aus RAM gelöscht");
@@ -623,6 +795,16 @@ async function initMainChatUI() {
   document.getElementById('my-username').textContent = currentUser.username;
   document.getElementById('my-id').textContent = `ID: ${currentUser.main_number}`;
 
+  // Toggle Admin Button visibility
+  if (userProfile && userProfile.is_admin) {
+    document.getElementById('open-admin-btn').classList.remove('hidden');
+    document.getElementById('mobile-admin-btn').classList.remove('hidden');
+  } else {
+    document.getElementById('open-admin-btn').classList.add('hidden');
+    document.getElementById('mobile-admin-btn').classList.add('hidden');
+  }
+
+  renderGlobalBanner();
   await fetchMyBurnerNumbers();
   updateSenderDropdown();
   await loadContactsFromSupabase();
@@ -647,7 +829,312 @@ function updateSenderDropdown() {
   });
 }
 
-// --- CONTACT MANAGEMENT & NICKNAMES (BLOCK 2) ---
+// --- ADMIN DASHBOARD LOGIC (/admin/dashboard) ---
+
+async function openAdminDashboard() {
+  if (!currentUser || !userProfile || !userProfile.is_admin) {
+    showToast('Admin-Zugriff verweigert. Bitte melde dich mit einem Admin-Konto an.', true);
+    if (!currentUser) {
+      document.getElementById('login-modal').classList.remove('hidden');
+    }
+    return;
+  }
+
+  document.getElementById('admin-dashboard-modal').classList.remove('hidden');
+  await refreshAdminDashboardData();
+}
+
+function closeAdminDashboard() {
+  document.getElementById('admin-dashboard-modal').classList.add('hidden');
+  if (window.location.pathname === '/admin/dashboard') {
+    window.history.pushState({}, '', '/');
+  }
+}
+
+async function refreshAdminDashboardData() {
+  await Promise.all([
+    loadAdminStats(),
+    loadAdminSettings(),
+    loadAdminInvites(),
+    loadAdminUsers()
+  ]);
+}
+
+async function loadAdminStats() {
+  try {
+    const res = await fetch('/api/admin/stats', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('admin-stat-users').textContent = data.activeUsers || 0;
+      document.getElementById('admin-stat-burners').textContent = data.burnerNumbers || 0;
+      document.getElementById('admin-stat-messages').textContent = data.messageCount || 0;
+    }
+  } catch (e) {
+    console.error("Load admin stats error:", e);
+  }
+}
+
+async function loadAdminSettings() {
+  try {
+    const res = await fetch('/api/admin/settings', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      data.forEach(item => {
+        if (item.key === 'require_invite_code') {
+          const toggle = document.getElementById('admin-require-invite-toggle');
+          if (toggle) toggle.checked = !!(item.value && item.value.enabled);
+          publicRequireInviteCode = toggle ? toggle.checked : false;
+        }
+        if (item.key === 'banner_config') {
+          const cfg = item.value || {};
+          publicBannerConfig = cfg;
+          if (document.getElementById('admin-banner-text')) document.getElementById('admin-banner-text').value = cfg.text || '';
+          if (document.getElementById('admin-banner-type')) document.getElementById('admin-banner-type').value = cfg.type || 'info';
+          if (document.getElementById('admin-banner-location')) document.getElementById('admin-banner-location').value = cfg.location || 'home';
+          if (document.getElementById('admin-banner-enable-toggle')) document.getElementById('admin-banner-enable-toggle').checked = !!cfg.enabled;
+          renderGlobalBanner();
+        }
+      });
+    }
+  } catch (e) {
+    console.error("Load admin settings error:", e);
+  }
+}
+
+async function handleToggleRequireInvite(e) {
+  const isEnabled = e.target.checked;
+  try {
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        key: 'require_invite_code',
+        value: { enabled: isEnabled }
+      })
+    });
+    if (res.ok) {
+      publicRequireInviteCode = isEnabled;
+      showToast(`Registrierungsbeschränkung ${isEnabled ? 'aktiviert' : 'deaktiviert'}.`);
+    } else {
+      e.target.checked = !isEnabled;
+      showToast("Fehler beim Speichern der Einstellung.", true);
+    }
+  } catch (err) {
+    e.target.checked = !isEnabled;
+    showToast(err.message, true);
+  }
+}
+
+async function loadAdminInvites() {
+  const tbody = document.getElementById('admin-invites-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Lade Einladungscodes...</td></tr>';
+
+  try {
+    const res = await fetch('/api/admin/invites', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      tbody.innerHTML = '';
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Keine Invite Codes vorhanden.</td></tr>';
+        return;
+      }
+
+      data.forEach(item => {
+        const tr = document.createElement('tr');
+        const isActive = item.is_active && item.used_count < item.max_uses;
+        const statusBadge = isActive
+          ? '<span class="status-badge badge-active">Aktiv</span>'
+          : '<span class="status-badge badge-inactive">Inaktiv</span>';
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(item.code)}</strong></td>
+          <td>${statusBadge}</td>
+          <td>${item.used_count} / ${item.max_uses}</td>
+          <td>
+            <button class="btn secondary-btn style-danger delete-invite-btn" style="padding: 4px 8px; font-size: 11px; width: auto;" data-code="${escapeHtml(item.code)}">Löschen</button>
+          </td>
+        `;
+
+        tr.querySelector('.delete-invite-btn').addEventListener('click', () => handleDeleteInvite(item.code));
+        tbody.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--danger);">Fehler beim Laden.</td></tr>';
+  }
+}
+
+async function handleAdminGenerateInvite() {
+  const type = document.getElementById('admin-invite-type-select').value;
+  let maxUses = 1;
+
+  if (type === 'multi') {
+    const usesInput = parseInt(document.getElementById('admin-invite-max-uses').value, 10);
+    maxUses = isNaN(usesInput) || usesInput < 1 ? 5 : usesInput;
+  }
+
+  try {
+    const res = await fetch('/api/admin/invites', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({ max_uses: maxUses })
+    });
+
+    if (res.ok) {
+      const created = await res.json();
+      const codeObj = Array.isArray(created) ? created[0] : created;
+      showToast(`Einladungscode ${codeObj.code} generiert!`);
+      loadAdminInvites();
+    } else {
+      showToast("Fehler beim Erstellen des Codes.", true);
+    }
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function handleDeleteInvite(code) {
+  if (confirm(`Code ${code} wirklich löschen?`)) {
+    try {
+      const res = await fetch(`/api/admin/invites?code=${encodeURIComponent(code)}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (res.ok) {
+        showToast(`Code ${code} gelöscht.`);
+        loadAdminInvites();
+      }
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+}
+
+async function handleAdminSaveBanner() {
+  const text = document.getElementById('admin-banner-text').value.trim();
+  const type = document.getElementById('admin-banner-type').value;
+  const location = document.getElementById('admin-banner-location').value;
+  const enabled = document.getElementById('admin-banner-enable-toggle').checked;
+
+  const bannerObj = { enabled, text, type, location };
+
+  try {
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        key: 'banner_config',
+        value: bannerObj
+      })
+    });
+
+    if (res.ok) {
+      publicBannerConfig = bannerObj;
+      renderGlobalBanner();
+      showToast("Banner-Einstellungen erfolgreich gespeichert!");
+    } else {
+      showToast("Fehler beim Speichern der Banner-Einstellungen.", true);
+    }
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadAdminUsers() {
+  const tbody = document.getElementById('admin-users-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Lade Benutzerliste...</td></tr>';
+
+  try {
+    const res = await fetch('/api/admin/users', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      tbody.innerHTML = '';
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Keine Nutzer gefunden.</td></tr>';
+        return;
+      }
+
+      data.forEach(user => {
+        const tr = document.createElement('tr');
+        const isFrozen = !!user.is_disabled;
+        const roleBadge = user.is_admin ? '<span class="status-badge badge-admin">Admin</span>' : '<span class="status-badge badge-user">Nutzer</span>';
+        const statusBadge = isFrozen
+          ? '<span class="status-badge badge-inactive">Eingefroren</span>'
+          : '<span class="status-badge badge-active">Aktiv</span>';
+
+        const freezeBtnText = isFrozen ? 'Freigeben' : 'Einfrieren';
+        const freezeBtnClass = isFrozen ? 'btn secondary-btn' : 'btn secondary-btn style-danger';
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(user.username)}</strong> ${roleBadge}</td>
+          <td>${user.main_number}</td>
+          <td>${statusBadge}</td>
+          <td>
+            ${user.id === currentUser.id ? '<span style="font-size: 11px; opacity: 0.6;">(Dein Konto)</span>' : `<button class="btn freeze-user-btn ${freezeBtnClass}" style="padding: 4px 8px; font-size: 11px; width: auto;" data-id="${user.id}" data-frozen="${isFrozen}">${freezeBtnText}</button>`}
+          </td>
+        `;
+
+        const btn = tr.querySelector('.freeze-user-btn');
+        if (btn) {
+          btn.addEventListener('click', () => handleToggleFreezeUser(user.id, !isFrozen));
+        }
+
+        tbody.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--danger);">Fehler beim Laden der Nutzer.</td></tr>';
+  }
+}
+
+async function handleToggleFreezeUser(userId, newDisabledState) {
+  const actionText = newDisabledState ? 'einfrieren' : 'entsperren / freigeben';
+  if (confirm(`Möchtest du dieses Konto wirklich ${actionText}?`)) {
+    try {
+      const res = await fetch('/api/admin/users/toggle-freeze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          is_disabled: newDisabledState
+        })
+      });
+
+      if (res.ok) {
+        showToast(`Nutzerkonto ${newDisabledState ? 'eingefroren' : 'freigegeben'}.`);
+        loadAdminUsers();
+      } else {
+        showToast("Fehler beim Ändern des Kontostatus.", true);
+      }
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+}
+
+// --- CONTACT MANAGEMENT & NICKNAMES ---
 
 async function loadContactsFromSupabase() {
   if (!currentUser) return;
@@ -660,7 +1147,6 @@ async function loadContactsFromSupabase() {
       contacts = [];
       for (const item of dbContacts) {
         try {
-          // Resolve public key to re-derive shared AES key
           const resKey = await fetch(`/api/profiles/resolve?number=${item.contact_number}`);
           if (resKey.ok) {
             const keyData = await resKey.json();
@@ -791,7 +1277,6 @@ async function addOrResolveContact(number) {
   renderContacts();
   selectContact(newContact);
 
-  // Show save contact prompt bar
   showSavePromptBar(number);
   return newContact;
 }
@@ -868,13 +1353,11 @@ function selectContact(contact) {
   document.getElementById('active-avatar').textContent = (contact.nickname || contact.number).slice(0, 2).toUpperCase();
   document.getElementById('active-contact-name').textContent = displayName;
 
-  // Show/Hide Save Prompt Bar
   showSavePromptBar(contact.number);
-
   loadAndRenderChatHistory(contact.number);
 }
 
-// --- UNREAD TEMPORARY MESSAGES (BLOCK 2) ---
+// --- UNREAD TEMPORARY MESSAGES ---
 
 async function fetchAndProcessUnreadMessages() {
   const myNumbers = getMyAllNumbers();
@@ -887,7 +1370,6 @@ async function fetchAndProcessUnreadMessages() {
           for (const record of msgs) {
             await handleIncomingMessage(record);
           }
-          // After reading/displaying messages, delete from Supabase temporary storage
           await fetch(`/api/messages?recipient_number=${num}`, { method: 'DELETE' });
         }
       }
@@ -906,7 +1388,7 @@ async function cleanupTemporaryUnreadMessages() {
   }
 }
 
-// --- ACCOUNT SETTINGS, DEACTIVATION, DELETE & BACKUP (BLOCK 3) ---
+// --- ACCOUNT SETTINGS, DEACTIVATION, DELETE & BACKUP ---
 
 async function handleExportKeysBackup() {
   if (!currentUser || !localKeyPair || !localPubKeyB64) return;
@@ -992,7 +1474,7 @@ async function handleDeleteAccount() {
   }
 }
 
-// --- BURNER NUMBERS MANAGEMENT & AUTO-EXPIRY (BLOCK 4) ---
+// --- BURNER NUMBERS MANAGEMENT & AUTO-EXPIRY ---
 
 async function fetchMyBurnerNumbers() {
   if (!currentUser) return;
@@ -1131,7 +1613,7 @@ function renderBurnerList() {
   });
 }
 
-// --- MESSAGING, TYPING INDICATOR & SELF-DESTRUCT TIMER (BLOCK 4) ---
+// --- MESSAGING, TYPING INDICATOR & SELF-DESTRUCT TIMER ---
 
 async function handleSendMessage(e) {
   e.preventDefault();
@@ -1183,7 +1665,6 @@ async function handleSendMessage(e) {
     input.value = '';
     playSoundFeedback('send');
 
-    // Schedule self destruct timer if enabled
     if (expiresAt) {
       scheduleSelfDestruct(msgObj.id, recipientNumber, expiresAt - Date.now());
     }
@@ -1207,12 +1688,10 @@ function handleTypingInput() {
 
 function scheduleSelfDestruct(msgId, contactNumber, delayMs) {
   setTimeout(() => {
-    // Remove from UI
     const bubble = document.getElementById(`msg-${msgId}`);
     if (bubble && bubble.parentNode) {
       bubble.parentNode.removeChild(bubble);
     }
-    // Remove from session storage
     const history = getChatHistory(contactNumber);
     const updated = history.filter(m => m.id !== msgId);
     sessionStorage.setItem(SESSION_CHAT_PREFIX + contactNumber, JSON.stringify(updated));
@@ -1280,7 +1759,7 @@ function appendMessageUI(msgObj, isNew = false) {
   container.scrollTop = container.scrollHeight;
 }
 
-// --- REALTIME MESSAGING WEBSOCKET STREAM (SUPABASE / PHOENIX PROTOCOL) ---
+// --- REALTIME MESSAGING WEBSOCKET STREAM ---
 
 function getMyAllNumbers() {
   if (!currentUser) return [];
@@ -1321,7 +1800,6 @@ async function handleIncomingMessage(record) {
       showToast(`Neue E2EE Nachricht von ${contact.nickname || senderNumber}!`);
     }
 
-    // Delete temporary message from Supabase after reading
     if (record.id) {
       fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
     }
@@ -1342,7 +1820,6 @@ function connectRealtimeWebSocket() {
     heartbeatTimer = null;
   }
 
-  // 1. Direct WebSocket Connection via Supabase JS Client
   if (window.supabase && supabaseUrl && supabaseAnonKey) {
     try {
       if (!supabaseClient) {
@@ -1396,7 +1873,6 @@ function connectRealtimeWebSocket() {
     }
   }
 
-  // 2. Fallback to Proxy / Local WebSocket server
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.host}/api/realtime`;
 
