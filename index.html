@@ -338,8 +338,9 @@
 
         <!-- ACTIVE CHAT HEADER -->
         <header id="chat-header" class="chat-header hidden">
-          <button id="mobile-back-btn" class="icon-btn mobile-only" aria-label="Zurück zur Kontaktauswahl">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <button id="mobile-back-btn" class="btn secondary-btn mobile-only back-nav-btn" aria-label="Zurück zur Kontaktauswahl">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            <span>← Kontakte</span>
           </button>
           <div class="active-user-info" id="active-user-clickable" title="Klicken um Nickname zu vergeben">
             <div class="avatar" id="active-avatar">?</div>
@@ -420,7 +421,7 @@
     </div>
   </div>
 
-  <!-- MODAL: ADMIN DASHBOARD (/admin/dashboard) -->
+    <!-- MODAL: ADMIN DASHBOARD (/admin/dashboard) -->
   <div id="admin-dashboard-modal" class="modal-overlay hidden">
     <div class="glass-card modal-card admin-dashboard-card">
       <div class="modal-header">
@@ -433,128 +434,160 @@
         <button id="close-admin-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
       </div>
 
-      <!-- ADMIN STATS GRID -->
-      <div class="admin-stats-grid">
-        <div class="stat-card">
-          <div class="stat-value" id="admin-stat-users">0</div>
-          <div class="stat-label">Aktive Nutzer</div>
+      <!-- ADMIN DASHBOARD TABS NAVIGATION -->
+      <nav class="admin-tabs" aria-label="Admin Dashboard Tabs">
+        <button type="button" class="admin-tab-btn active" data-tab="stats">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>Statistiken</span>
+        </button>
+        <button type="button" class="admin-tab-btn" data-tab="invites">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 0 0-2 2v3a2 2 0 0 1 0 4v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3a2 2 0 0 1 0-4V7a2 2 0 0 0-2-2H5z"/></svg>
+          <span>Invite Codes</span>
+        </button>
+        <button type="button" class="admin-tab-btn" data-tab="banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          <span>Banner Settings</span>
+        </button>
+        <button type="button" class="admin-tab-btn" data-tab="users">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Nutzer-Verwaltung</span>
+        </button>
+      </nav>
+
+      <!-- TAB 1: STATISTIKEN & GLOBALE REGISTRIERUNG -->
+      <div id="admin-tab-stats" class="admin-tab-content active">
+        <!-- ADMIN STATS GRID -->
+        <div class="admin-stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="admin-stat-users">0</div>
+            <div class="stat-label">Aktive Nutzer</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="admin-stat-burners">0</div>
+            <div class="stat-label">Burner-IDs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="admin-stat-messages">0</div>
+            <div class="stat-label">Nachrichten</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="admin-stat-burners">0</div>
-          <div class="stat-label">Burner-IDs</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="admin-stat-messages">0</div>
-          <div class="stat-label">Nachrichten</div>
+
+        <!-- SETTINGS & REGISTRATION RESTRICTION TOGGLE CARD -->
+        <div class="admin-section admin-card-box">
+          <div class="admin-toggle-row">
+            <div class="admin-toggle-info">
+              <h4>Registrierung beschränken (Invite Codes)</h4>
+              <p class="admin-desc">Wenn aktiv, können sich neue Nutzer nur mit einem gültigen Einladungscode registrieren.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="admin-require-invite-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
         </div>
       </div>
 
-      <!-- SETTINGS & REGISTRATION RESTRICTION TOGGLE -->
-      <div class="admin-section">
-        <div class="admin-toggle-row">
-          <div>
-            <h4>Registrierung beschränken (Invite Codes)</h4>
-            <p class="admin-desc">Wenn aktiv, können sich neue Nutzer nur mit einem gültigen Einladungscode registrieren.</p>
+      <!-- TAB 2: INVITE CODES MANAGEMENT -->
+      <div id="admin-tab-invites" class="admin-tab-content hidden">
+        <div class="admin-section admin-card-box">
+          <h4>Invite Code Generator</h4>
+          <div class="admin-invite-controls">
+            <div class="form-group inline-form-group">
+              <label for="admin-invite-type-select">Code Typ</label>
+              <select id="admin-invite-type-select" class="burner-select">
+                <option value="1">Einmal-Code (1 Nutzung)</option>
+                <option value="multi">Multi-Use Code</option>
+              </select>
+            </div>
+            <div id="admin-invite-uses-wrapper" class="form-group inline-form-group hidden">
+              <label for="admin-invite-max-uses">Nutzungslimit</label>
+              <input type="number" id="admin-invite-max-uses" value="5" min="1" max="1000">
+            </div>
+            <button id="admin-generate-invite-btn" class="btn primary-btn inline-btn">Neuen Code erstellen</button>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="admin-require-invite-toggle">
-            <span class="slider round"></span>
-          </label>
+
+          <div class="table-responsive">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Nutzung</th>
+                  <th>Aktion</th>
+                </tr>
+              </thead>
+              <tbody id="admin-invites-tbody">
+                <!-- Dynamically populated invite codes -->
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <!-- INVITE CODES MANAGEMENT -->
-      <div class="admin-section">
-        <h4>Invite Code Generator</h4>
-        <div class="admin-invite-controls">
-          <div class="form-group inline-form-group">
-            <label for="admin-invite-type-select">Code Typ</label>
-            <select id="admin-invite-type-select" class="burner-select">
-              <option value="1">Einmal-Code (1 Nutzung)</option>
-              <option value="multi">Multi-Use Code</option>
-            </select>
+      <!-- TAB 3: BANNER MANAGER -->
+      <div id="admin-tab-banner" class="admin-tab-content hidden">
+        <div class="admin-section admin-card-box">
+          <h4>Globale Banner-Verwaltung</h4>
+          <div class="form-group">
+            <label for="admin-banner-text">Banner-Text</label>
+            <input type="text" id="admin-banner-text" placeholder="z. B. AegisChat Beta v2.0 Live!..." autocomplete="off">
           </div>
-          <div id="admin-invite-uses-wrapper" class="form-group inline-form-group hidden">
-            <label for="admin-invite-max-uses">Nutzungslimit</label>
-            <input type="number" id="admin-invite-max-uses" value="5" min="1" max="1000">
+          <div class="admin-banner-row">
+            <div class="form-group flex-1">
+              <label for="admin-banner-type">Typ</label>
+              <select id="admin-banner-type">
+                <option value="info">Info (Blau)</option>
+                <option value="warning">Warning (Gelb)</option>
+                <option value="beta">Beta-Hinweis (Lila/Cyan)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="admin-banner-location">Anzeigeort</label>
+              <select id="admin-banner-location">
+                <option value="home">Nur Homepage</option>
+                <option value="global">Global (Homepage & Chat)</option>
+              </select>
+            </div>
           </div>
-          <button id="admin-generate-invite-btn" class="btn primary-btn inline-btn">Neuen Code erstellen</button>
-        </div>
-
-        <div class="table-responsive">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Status</th>
-                <th>Nutzung</th>
-                <th>Aktion</th>
-              </tr>
-            </thead>
-            <tbody id="admin-invites-tbody">
-              <!-- Dynamically populated invite codes -->
-            </tbody>
-          </table>
+          <div class="admin-toggle-row" style="margin-top: 12px;">
+            <div class="admin-toggle-info">
+              <h4>Banner Aktivieren</h4>
+              <p class="admin-desc">Blendet das Benachrichtigungsbanner oben im Bildschirmelement ein.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="admin-banner-enable-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <button id="admin-save-banner-btn" class="btn primary-btn" style="margin-top: 16px;">Banner Einstellungen Speichern</button>
         </div>
       </div>
 
-      <!-- BANNER MANAGER -->
-      <div class="admin-section">
-        <h4>Globale Banner-Verwaltung</h4>
-        <div class="form-group">
-          <label for="admin-banner-text">Banner-Text</label>
-          <input type="text" id="admin-banner-text" placeholder="z. B. AegisChat Beta v2.0 Live!..." autocomplete="off">
-        </div>
-        <div class="admin-banner-row">
-          <div class="form-group flex-1">
-            <label for="admin-banner-type">Typ</label>
-            <select id="admin-banner-type">
-              <option value="info">Info (Blau)</option>
-              <option value="warning">Warning (Gelb)</option>
-              <option value="beta">Beta-Hinweis (Lila/Cyan)</option>
-            </select>
+      <!-- TAB 4: USER MANAGEMENT & FREEZE TOOL -->
+      <div id="admin-tab-users" class="admin-tab-content hidden">
+        <div class="admin-section admin-card-box">
+          <h4>Nutzer-Sperrfunktion (Account-Freeze)</h4>
+          <div class="table-responsive">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Nutzername</th>
+                  <th>Haupt-ID</th>
+                  <th>Status</th>
+                  <th>Aktion</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-tbody">
+                <!-- Dynamically populated users -->
+              </tbody>
+            </table>
           </div>
-          <div class="form-group flex-1">
-            <label for="admin-banner-location">Anzeigeort</label>
-            <select id="admin-banner-location">
-              <option value="home">Nur Homepage</option>
-              <option value="global">Global (Homepage & Chat)</option>
-            </select>
-          </div>
-        </div>
-        <div class="admin-toggle-row" style="margin-top: 10px;">
-          <span>Banner Aktivieren</span>
-          <label class="switch">
-            <input type="checkbox" id="admin-banner-enable-toggle">
-            <span class="slider round"></span>
-          </label>
-        </div>
-        <button id="admin-save-banner-btn" class="btn primary-btn" style="margin-top: 12px;">Banner Einstellungen Speichern</button>
-      </div>
-
-      <!-- USER MANAGEMENT & FREEZE TOOL -->
-      <div class="admin-section">
-        <h4>Nutzer-Sperrfunktion (Account-Freeze)</h4>
-        <div class="table-responsive">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Nutzername</th>
-                <th>Haupt-ID</th>
-                <th>Status</th>
-                <th>Aktion</th>
-              </tr>
-            </thead>
-            <tbody id="admin-users-tbody">
-              <!-- Dynamically populated users -->
-            </tbody>
-          </table>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: NICKNAME & CONTACT EDIT -->
+<!-- MODAL: NICKNAME & CONTACT EDIT -->
   <div id="nickname-modal" class="modal-overlay hidden">
     <div class="glass-card modal-card">
       <div class="modal-header">
@@ -637,7 +670,7 @@
     </div>
   </div>
 
-  <!-- MODAL: ACCOUNT SETTINGS & PRIVACY CONTROLS -->
+    <!-- MODAL: ACCOUNT SETTINGS & PRIVACY CONTROLS -->
   <div id="settings-modal" class="modal-overlay hidden">
     <div class="glass-card modal-card settings-card">
       <div class="modal-header">
@@ -645,45 +678,76 @@
         <button id="close-settings-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
       </div>
 
-      <div class="settings-section">
-        <h4>Backup & Schlüssel-Export</h4>
-        <p class="settings-desc">Exportiere dein kryptografisches Schlüsselpaar (öffentlicher & passwortgeschützter privater Schlüssel) als JSON-Datei.</p>
-        <button id="export-keys-btn" class="btn secondary-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Schlüssel-Backup herunterladen</span>
-        </button>
-      </div>
+      <div class="settings-grid">
+        <!-- CARD 1: KONTO & IDS -->
+        <div class="settings-card-segment">
+          <div class="settings-segment-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <h4>Konto & Identifikatoren</h4>
+          </div>
+          <div class="settings-info-box">
+            <div class="settings-info-item">
+              <span class="info-label">Haupt-ID:</span>
+              <span id="settings-main-id-display" class="info-value font-mono">--------</span>
+            </div>
+            <div class="settings-info-item">
+              <span class="info-label">Nutzername:</span>
+              <span id="settings-username-display" class="info-value">--</span>
+            </div>
+          </div>
+          <button id="restart-onboarding-btn" class="btn secondary-btn full-width-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <span>Einführungstour erneut starten</span>
+          </button>
+        </div>
 
-      <div class="settings-section">
-        <h4>Einführungstour</h4>
-        <p class="settings-desc">Starte die interaktive AegisChat Onboarding-Einführung erneut.</p>
-        <button id="restart-onboarding-btn" class="btn secondary-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          <span>Einführung anzeigen</span>
-        </button>
-      </div>
+        <!-- CARD 2: SICHERHEIT & BACKUP -->
+        <div class="settings-card-segment">
+          <div class="settings-segment-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h4>Sicherheit & Backup</h4>
+          </div>
+          <p class="settings-desc">Exportiere dein kryptografisches Schlüsselpaar (öffentlicher & passwortgeschützter privater Schlüssel) als sichere JSON-Datei.</p>
+          <button id="export-keys-btn" class="btn secondary-btn full-width-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Schlüssel-Backup herunterladen</span>
+          </button>
+        </div>
 
-      <div class="settings-section">
-        <h4>Konto Deaktivieren</h4>
-        <p class="settings-desc">Friert dein Konto vorübergehend ein. Logins sind bis zur Reaktivierung gesperrt.</p>
-        <button id="deactivate-account-btn" class="btn secondary-btn style-warning">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <span>Konto Einfrieren / Deaktivieren</span>
-        </button>
-      </div>
+        <!-- CARD 3: ACCOUNT-VERWALTUNG (DEAKTIVIEREN & SELF-DESTRUCT) -->
+        <div class="settings-card-segment style-danger-zone">
+          <div class="settings-segment-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <h4 style="color: var(--danger);">Account-Verwaltung</h4>
+          </div>
 
-      <div class="settings-section style-danger-zone">
-        <h4 style="color: var(--danger);">Konto Endgültig Löschen ("Self-Destruct")</h4>
-        <p class="settings-desc">Löscht deinen Profileintrag, alle verknüpften Burner-IDs, Kontakte und Schlüssel unwiderruflich aus der Datenbank.</p>
-        <button id="delete-account-btn" class="btn style-danger-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-          <span>Self-Destruct / Konto unwiderruflich löschen</span>
-        </button>
+          <div class="settings-action-block">
+            <div class="settings-action-desc">
+              <strong>Konto vorübergehend deaktivieren</strong>
+              <p class="settings-desc">Friert dein Konto vorübergehend ein. Logins sind bis zur Reaktivierung gesperrt.</p>
+            </div>
+            <button id="deactivate-account-btn" class="btn secondary-btn style-warning full-width-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>Konto Einfrieren / Deaktivieren</span>
+            </button>
+          </div>
+
+          <div class="settings-action-block" style="margin-top: 14px;">
+            <div class="settings-action-desc">
+              <strong style="color: var(--danger);">Self-Destruct (Konto unwiderruflich löschen)</strong>
+              <p class="settings-desc">Löscht deinen Profileintrag, alle verknüpften Burner-IDs, Kontakte und Schlüssel unwiderruflich aus der Datenbank.</p>
+            </div>
+            <button id="delete-account-btn" class="btn style-danger-btn full-width-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              <span>Self-Destruct / Unwiderruflich löschen</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: BURNER IDs (DISPOSABLE NUMBERS) MANAGEMENT -->
+<!-- MODAL: BURNER IDs (DISPOSABLE NUMBERS) MANAGEMENT -->
   <div id="burner-modal" class="modal-overlay hidden">
     <div class="glass-card modal-card burner-card">
       <div class="modal-header">

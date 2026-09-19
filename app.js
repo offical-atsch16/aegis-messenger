@@ -595,6 +595,15 @@ function setupEventListeners() {
   const saveBannerBtn = document.getElementById('admin-save-banner-btn');
   if (saveBannerBtn) saveBannerBtn.addEventListener('click', handleAdminSaveBanner);
 
+  // Admin Tab Switching
+  const adminTabBtns = document.querySelectorAll('.admin-tab-btn');
+  adminTabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.dataset.tab;
+      switchAdminTab(tabName);
+    });
+  });
+
   // Emergency Lock / Panic Buttons
   document.getElementById('panic-lock-btn').addEventListener('click', handleEmergencyLock);
   document.getElementById('mobile-panic-btn').addEventListener('click', handleEmergencyLock);
@@ -620,6 +629,12 @@ function setupEventListeners() {
 
   // Settings Modal controls
   document.getElementById('open-settings-btn').addEventListener('click', () => {
+    if (currentUser) {
+      const mainIdEl = document.getElementById('settings-main-id-display');
+      const unameEl = document.getElementById('settings-username-display');
+      if (mainIdEl) mainIdEl.textContent = currentUser.main_number || '--------';
+      if (unameEl) unameEl.textContent = currentUser.username || '--';
+    }
     document.getElementById('settings-modal').classList.remove('hidden');
   });
   document.getElementById('close-settings-modal-btn').addEventListener('click', () => {
@@ -969,6 +984,28 @@ function updateSenderDropdown() {
 }
 
 // --- ADMIN DASHBOARD LOGIC (/admin/dashboard) ---
+
+function switchAdminTab(tabName) {
+  const tabs = document.querySelectorAll('.admin-tab-btn');
+  tabs.forEach(btn => {
+    if (btn.dataset.tab === tabName) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  const tabContents = document.querySelectorAll('.admin-tab-content');
+  tabContents.forEach(content => {
+    if (content.id === 'admin-tab-' + tabName) {
+      content.classList.remove('hidden');
+      content.classList.add('active');
+    } else {
+      content.classList.add('hidden');
+      content.classList.remove('active');
+    }
+  });
+}
 
 async function openAdminDashboard() {
   if (!currentUser || !userProfile || !userProfile.is_admin) {
