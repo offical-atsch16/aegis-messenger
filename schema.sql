@@ -1,6 +1,6 @@
 -- =========================================================
 -- AegisChat - Supabase Database Schema
--- Self-Hosted E2EE Web Messenger with Burner IDs (Disposable Numbers)
+-- Self-Hosted E2EE Web Messenger with Burner IDs & Contacts
 -- Cloudflare Pages & Supabase Backend
 -- =========================================================
 
@@ -8,13 +8,14 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. PROFILES TABLE
--- Stores user identity metadata, main 8-digit ID, public key, and wrapped private key
+-- Stores user identity metadata, main 8-digit ID, public key, wrapped private key, and account status
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL,
   main_number VARCHAR(8) UNIQUE NOT NULL,
   encrypted_private_key TEXT NOT NULL,
   public_key TEXT NOT NULL,
+  is_disabled BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -39,8 +40,22 @@ CREATE INDEX IF NOT EXISTS idx_disposable_burner_number ON public.disposable_num
 CREATE INDEX IF NOT EXISTS idx_disposable_user_id ON public.disposable_numbers(user_id);
 
 
--- 3. MESSAGES TABLE
--- Stores E2EE encrypted payloads routed between main numbers or burner numbers
+-- 3. USER CONTACTS & NICKNAMES TABLE
+-- Stores contacts and custom local nicknames synced per user (Zero-Knowledge: chat history remains local)
+CREATE TABLE IF NOT EXISTS public.user_contacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  contact_number VARCHAR(8) NOT NULL,
+  nickname TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  UNIQUE (user_id, contact_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_contacts_user_id ON public.user_contacts(user_id);
+
+
+-- 4. MESSAGES TABLE
+-- Stores E2EE encrypted payloads temporarily routed between main numbers or burner numbers
 CREATE TABLE IF NOT EXISTS public.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sender_number VARCHAR(8) NOT NULL,
@@ -62,6 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at
 -- Enable RLS on all tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.disposable_numbers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES POLICIES
@@ -96,6 +112,12 @@ CREATE POLICY "Users can delete burner numbers"
   USING (true);
 
 
+-- USER CONTACTS POLICIES
+CREATE POLICY "Anyone can manage user contacts"
+  ON public.user_contacts FOR ALL
+  USING (true);
+
+
 -- MESSAGES POLICIES
 CREATE POLICY "Anyone can send a message"
   ON public.messages FOR INSERT
@@ -103,6 +125,10 @@ CREATE POLICY "Anyone can send a message"
 
 CREATE POLICY "Anyone can view relevant messages"
   ON public.messages FOR SELECT
+  USING (true);
+
+CREATE POLICY "Anyone can delete relevant messages"
+  ON public.messages FOR DELETE
   USING (true);
 
 

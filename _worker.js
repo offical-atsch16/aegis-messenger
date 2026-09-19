@@ -71,7 +71,6 @@ export default {
       const supabaseWsHost = cleanBaseUrl.replace(/^https?:\/\//, '');
       const supabaseWsUrl = `${wsProtocol}://${supabaseWsHost}/realtime/v1/websocket?apikey=${supabaseAnonKey}&vsn=1.0.0`;
 
-      // Pass-through WebSocket request to Supabase Realtime using Cloudflare fetch
       return fetch(supabaseWsUrl, {
         headers: {
           'Upgrade': 'websocket'
@@ -91,6 +90,21 @@ export default {
         headers['Authorization'] = `Bearer ${supabaseAnonKey}`;
       }
       return headers;
+    };
+
+    // Helper to verify user token and return user or null
+    const verifyUserToken = async (token) => {
+      if (!token) return null;
+      try {
+        const userRes = await fetch(`${cleanBaseUrl}/auth/v1/user`, {
+          headers: getSupabaseHeaders(token)
+        });
+        if (!userRes.ok) return null;
+        const userData = await userRes.json();
+        return userData && userData.id ? userData : null;
+      } catch (e) {
+        return null;
+      }
     };
 
     try {
@@ -113,7 +127,6 @@ export default {
         let accessToken = null;
 
         if (serviceRoleKey) {
-          // Admin registration via Supabase Admin API
           const adminRes = await fetch(`${cleanBaseUrl}/auth/v1/admin/users`, {
             method: 'POST',
             headers: {
@@ -147,7 +160,6 @@ export default {
 
           user = adminData.user || adminData;
 
-          // Authenticate user to obtain access_token
           const loginRes = await fetch(`${cleanBaseUrl}/auth/v1/token?grant_type=password`, {
             method: 'POST',
             headers: getSupabaseHeaders(),
@@ -165,7 +177,6 @@ export default {
             }
           }
         } else {
-          // Fallback to standard signup when SUPABASE_SERVICE_ROLE_KEY is missing
           const signUpRes = await fetch(`${cleanBaseUrl}/auth/v1/signup`, {
             method: 'POST',
             headers: getSupabaseHeaders(),
@@ -214,7 +225,7 @@ export default {
           }
         }
 
-        // Step 2: Insert into profiles table
+        // Insert into profiles table
         const profileRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles`, {
           method: 'POST',
           headers: {
@@ -226,7 +237,8 @@ export default {
             username: username,
             main_number: main_number,
             encrypted_private_key: encrypted_private_key,
-            public_key: public_key
+            public_key: public_key,
+            is_disabled: false
           })
         });
 
@@ -260,21 +272,22 @@ export default {
 
         let resolvedUsername = identifier;
 
-        // Check if identifier is an 8-digit main_number
         if (/^\d{8}$/.test(identifier)) {
-          const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${identifier}&select=username`, {
+          const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${identifier}&select=username,is_disabled`, {
             headers: getSupabaseHeaders()
           });
           const profList = await profRes.json();
           if (!profRes.ok || !profList || profList.length === 0) {
             return new Response(JSON.stringify({ error: 'Kein Profil zu dieser Haupt-ID gefunden.' }), { status: 404 });
           }
+          if (profList[0].is_disabled) {
+            return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert. Bitte kontaktiere den Support oder reaktiviere es.' }), { status: 403 });
+          }
           resolvedUsername = profList[0].username;
         }
 
         const syntheticEmail = `${resolvedUsername.toLowerCase()}@aegis.internal`;
 
-        // Login via Supabase Auth
         const tokenRes = await fetch(`${cleanBaseUrl}/auth/v1/token?grant_type=password`, {
           method: 'POST',
           headers: getSupabaseHeaders(),
@@ -299,6 +312,10 @@ export default {
           return new Response(JSON.stringify({ error: 'Nutzerprofil nicht gefunden.' }), { status: 404 });
         }
 
+        if (profileData[0].is_disabled) {
+          return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
         return new Response(JSON.stringify({
           user: {
             id: tokenData.user.id,
@@ -310,20 +327,98 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 5. RESOLVE PUBLIC KEY (/api/profiles/resolve)
+      // 5. ACCOUNT DEACTIVATION (/api/auth/deactivate)
+      if (url.pathname === '/api/auth/deactivate' && request.method === 'POST') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const authUser = await verifyUserToken(token);
+
+        if (!token || !authUser) {
+          return new Response(JSON.stringify({ error: 'Nicht autorisiert. Gültiges Token erforderlich.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const body = await request.json();
+        const { user_id } = body;
+
+        if (!user_id || authUser.id !== user_id) {
+          return new Response(JSON.stringify({ error: 'Keine Berechtigung für diese Aktion.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const updateRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${user_id}`, {
+          method: 'PATCH',
+          headers: {
+            ...getSupabaseHeaders(token),
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify({ is_disabled: true })
+        });
+
+        if (!updateRes.ok) {
+          return new Response(JSON.stringify({ error: 'Konto konnte nicht deaktiviert werden.' }), { status: updateRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        return new Response(JSON.stringify({ success: true, message: 'Konto erfolgreich deaktiviert.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 6. PERMANENT ACCOUNT DELETION ("Self-Destruct") (/api/auth/delete-account)
+      if (url.pathname === '/api/auth/delete-account' && (request.method === 'POST' || request.method === 'DELETE')) {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const authUser = await verifyUserToken(token);
+
+        if (!token || !authUser) {
+          return new Response(JSON.stringify({ error: 'Nicht autorisiert. Gültiges Token erforderlich.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const body = await request.json();
+        const { user_id } = body;
+
+        if (!user_id || authUser.id !== user_id) {
+          return new Response(JSON.stringify({ error: 'Keine Berechtigung für diese Aktion.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+
+        // Delete profile (cascades disposable_numbers, user_contacts)
+        const delProfRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${user_id}`, {
+          method: 'DELETE',
+          headers: getSupabaseHeaders(token || serviceRoleKey)
+        });
+
+        if (!delProfRes.ok) {
+          return new Response(JSON.stringify({ error: 'Fehler beim Löschen des Profils.' }), { status: delProfRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // If serviceRoleKey is available, delete from Supabase auth admin as well
+        if (serviceRoleKey) {
+          await fetch(`${cleanBaseUrl}/auth/v1/admin/users/${user_id}`, {
+            method: 'DELETE',
+            headers: {
+              'apikey': serviceRoleKey,
+              'Authorization': `Bearer ${serviceRoleKey}`
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({ success: true, message: 'Konto unwiderruflich gelöscht.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 7. RESOLVE PUBLIC KEY (/api/profiles/resolve)
       if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
         const number = url.searchParams.get('number');
         if (!number) {
           return new Response(JSON.stringify({ error: 'Nummer erforderlich.' }), { status: 400 });
         }
 
-        // Search profiles by main_number
-        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${number}&select=public_key`, {
+        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${number}&select=public_key,is_disabled`, {
           headers: getSupabaseHeaders()
         });
         const profData = await profRes.json();
 
         if (profRes.ok && profData && profData.length > 0) {
+          if (profData[0].is_disabled) {
+            return new Response(JSON.stringify({ error: 'Dieses Konto ist deaktiviert.' }), { status: 403 });
+          }
           return new Response(JSON.stringify({
             number: number,
             public_key: profData[0].public_key,
@@ -331,8 +426,7 @@ export default {
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
-        // Search disposable_numbers by burner_number
-        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&active=eq.true&select=user_id,expires_at,profiles(public_key)`, {
+        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&active=eq.true&select=user_id,expires_at,profiles(public_key,is_disabled)`, {
           headers: getSupabaseHeaders()
         });
         const burnerData = await burnerRes.json();
@@ -341,6 +435,9 @@ export default {
           const burner = burnerData[0];
           if (burner.expires_at && new Date(burner.expires_at) <= new Date()) {
             return new Response(JSON.stringify({ error: 'Diese Einweg-Nummer ist abgelaufen.' }), { status: 410 });
+          }
+          if (burner.profiles && burner.profiles.is_disabled) {
+            return new Response(JSON.stringify({ error: 'Inhaber-Konto ist deaktiviert.' }), { status: 403 });
           }
           if (burner.profiles && burner.profiles.public_key) {
             return new Response(JSON.stringify({
@@ -354,7 +451,55 @@ export default {
         return new Response(JSON.stringify({ error: 'Nummer nicht gefunden oder inaktiv.' }), { status: 404 });
       }
 
-      // 6. BURNER NUMBERS MANAGEMENT (/api/burners)
+      // 8. CONTACTS MANAGEMENT (/api/contacts)
+      if (url.pathname === '/api/contacts') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+
+        if (request.method === 'GET') {
+          const userId = url.searchParams.get('user_id');
+          if (!userId) return new Response(JSON.stringify({ error: 'user_id erforderlich.' }), { status: 400 });
+
+          const fetchRes = await fetch(`${cleanBaseUrl}/rest/v1/user_contacts?user_id=eq.${userId}&select=*`, {
+            headers: getSupabaseHeaders(token)
+          });
+          const resData = await fetchRes.json();
+          return new Response(JSON.stringify(resData), { status: fetchRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json();
+          const { user_id, contact_number, nickname } = body;
+
+          const upsertRes = await fetch(`${cleanBaseUrl}/rest/v1/user_contacts`, {
+            method: 'POST',
+            headers: {
+              ...getSupabaseHeaders(token),
+              'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify({
+              user_id,
+              contact_number,
+              nickname
+            })
+          });
+          const resData = await upsertRes.json();
+          return new Response(JSON.stringify(resData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'DELETE') {
+          const userId = url.searchParams.get('user_id');
+          const contactNumber = url.searchParams.get('contact_number');
+
+          const delRes = await fetch(`${cleanBaseUrl}/rest/v1/user_contacts?user_id=eq.${userId}&contact_number=eq.${contactNumber}`, {
+            method: 'DELETE',
+            headers: getSupabaseHeaders(token)
+          });
+          return new Response(null, { status: delRes.status });
+        }
+      }
+
+      // 9. BURNER NUMBERS MANAGEMENT (/api/burners)
       if (url.pathname === '/api/burners') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -392,10 +537,22 @@ export default {
         }
       }
 
-      // 7. MESSAGES ENDPOINT (/api/messages)
+      // 10. MESSAGES ENDPOINT (/api/messages)
       if (url.pathname === '/api/messages') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+
+        if (request.method === 'GET') {
+          const recipientNumber = url.searchParams.get('recipient_number');
+          if (!recipientNumber) {
+            return new Response(JSON.stringify({ error: 'recipient_number erforderlich' }), { status: 400 });
+          }
+          const fetchRes = await fetch(`${cleanBaseUrl}/rest/v1/messages?recipient_number=eq.${recipientNumber}&select=*`, {
+            headers: getSupabaseHeaders(token)
+          });
+          const resData = await fetchRes.json();
+          return new Response(JSON.stringify(resData), { status: fetchRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
 
         if (request.method === 'POST') {
           const body = await request.json();
@@ -409,6 +566,26 @@ export default {
           });
           const resData = await insertRes.json();
           return new Response(JSON.stringify(resData), { status: insertRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'DELETE') {
+          const recipientNumber = url.searchParams.get('recipient_number');
+          const msgId = url.searchParams.get('id');
+
+          let endpoint = `${cleanBaseUrl}/rest/v1/messages`;
+          if (msgId) {
+            endpoint += `?id=eq.${msgId}`;
+          } else if (recipientNumber) {
+            endpoint += `?recipient_number=eq.${recipientNumber}`;
+          } else {
+            return new Response(JSON.stringify({ error: 'recipient_number oder id erforderlich' }), { status: 400 });
+          }
+
+          const delRes = await fetch(endpoint, {
+            method: 'DELETE',
+            headers: getSupabaseHeaders(token)
+          });
+          return new Response(null, { status: delRes.status });
         }
       }
 

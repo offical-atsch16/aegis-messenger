@@ -1,20 +1,21 @@
-/* AegisChat - Modern Glassmorphism & Responsive Theme */
+/* AegisChat - Modern Glassmorphism & Enterprise Privacy Theme */
 :root {
   --bg-dark: #070a13;
-  --panel-bg: rgba(15, 23, 42, 0.78);
-  --panel-border: rgba(255, 255, 255, 0.08);
+  --panel-bg: rgba(15, 23, 42, 0.82);
+  --panel-border: rgba(255, 255, 255, 0.1);
   --accent: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.4);
+  --accent-glow: rgba(99, 102, 241, 0.45);
   --accent-hover: #4f46e5;
   --accent-cyan: #06b6d4;
   --accent-pink: #ec4899;
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
-  --input-bg: rgba(10, 15, 28, 0.65);
+  --input-bg: rgba(10, 15, 28, 0.7);
   --msg-own: linear-gradient(135deg, #6366f1, #4f46e5);
-  --msg-other: rgba(30, 41, 59, 0.85);
+  --msg-other: rgba(30, 41, 59, 0.88);
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --warning: #f59e0b;
   --font-main: 'Plus Jakarta Sans', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
@@ -452,6 +453,35 @@ input:focus, select:focus, textarea:focus {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.style-danger-btn {
+  background: linear-gradient(135deg, var(--danger), var(--danger-hover));
+  color: white;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.4);
+}
+
+.style-danger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(239, 68, 68, 0.5);
+}
+
+.style-danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--danger);
+}
+
+.style-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.style-warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+}
+
+.style-warning:hover {
+  background: rgba(245, 158, 11, 0.15);
+}
+
 .icon-btn {
   background: transparent;
   border: none;
@@ -468,6 +498,15 @@ input:focus, select:focus, textarea:focus {
 .icon-btn:hover {
   color: var(--text-main);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.emergency-btn {
+  color: #f87171;
+}
+
+.emergency-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .status-msg {
@@ -590,7 +629,7 @@ input:focus, select:focus, textarea:focus {
 
 .profile-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .section-title {
@@ -647,9 +686,27 @@ input:focus, select:focus, textarea:focus {
   border-color: rgba(99, 102, 241, 0.4);
 }
 
-.contact-item .contact-id {
+.contact-item .contact-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.contact-item .contact-name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-main);
+}
+
+.contact-item .contact-id {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -662,6 +719,42 @@ input:focus, select:focus, textarea:focus {
   border-radius: 6px;
   background: rgba(6, 182, 212, 0.15);
   color: var(--accent-cyan);
+}
+
+/* PROMPT BAR FOR SAVING CONTACT */
+.prompt-bar {
+  background: rgba(99, 102, 241, 0.18);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.35);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.prompt-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c7d2fe;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.prompt-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  width: auto;
+  border-radius: 8px;
 }
 
 /* Footer / Branding in Sidebar */
@@ -696,7 +789,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .chat-header {
-  padding: 16px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--panel-border);
   display: flex;
   align-items: center;
@@ -707,6 +800,29 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 12px;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 4px 8px;
+  transition: background 0.2s;
+}
+
+.active-user-info:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.active-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-edit-btn {
+  padding: 2px 4px;
+  opacity: 0.6;
+}
+
+.active-user-info:hover .inline-edit-btn {
+  opacity: 1;
 }
 
 .status-indicator {
@@ -714,7 +830,20 @@ input:focus, select:focus, textarea:focus {
   color: #10b981;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.typing-text {
+  font-size: 12px;
+  color: var(--accent-cyan);
+  font-style: italic;
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
 }
 
 .lock-icon {
@@ -779,6 +908,28 @@ input:focus, select:focus, textarea:focus {
   word-break: break-word;
   position: relative;
   animation: fadeIn 0.2s ease-out;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+/* Encryption & Decryption Visual Effects */
+.msg-bubble.encrypting-pulse {
+  animation: encryptPulse 0.6s ease-in-out;
+}
+
+.msg-bubble.decrypting-pulse {
+  animation: decryptPulse 0.6s ease-in-out;
+}
+
+@keyframes encryptPulse {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.8); }
+  50% { box-shadow: 0 0 20px 4px rgba(99, 102, 241, 0.9); }
+  100% { box-shadow: 0 4px 14px var(--accent-glow); }
+}
+
+@keyframes decryptPulse {
+  0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8); }
+  50% { box-shadow: 0 0 20px 4px rgba(6, 182, 212, 0.9); }
+  100% { box-shadow: none; }
 }
 
 @keyframes fadeIn {
@@ -804,10 +955,17 @@ input:focus, select:focus, textarea:focus {
 
 .msg-meta {
   font-size: 10px;
-  opacity: 0.7;
+  opacity: 0.75;
   margin-top: 4px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
+}
+
+.msg-tick {
+  font-size: 11px;
+  color: #38bdf8;
 }
 
 .message-input-area {
@@ -823,6 +981,117 @@ input:focus, select:focus, textarea:focus {
   padding: 0;
   border-radius: 12px;
   flex-shrink: 0;
+}
+
+/* ONBOARDING TOUR MODAL */
+.onboarding-card {
+  max-width: 480px;
+  padding: 32px;
+  text-align: center;
+}
+
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.step-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #a5b4fc;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.step-icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 18px auto;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2));
+  border: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-cyan);
+}
+
+.onboarding-step h3 {
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.onboarding-step p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.dot-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 0.3s;
+}
+
+.dot-indicator.active {
+  width: 24px;
+  border-radius: 4px;
+  background: var(--accent-cyan);
+}
+
+.onboarding-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* SETTINGS MODAL */
+.settings-card {
+  max-width: 520px;
+  padding: 28px;
+}
+
+.settings-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--panel-border);
+  text-align: left;
+}
+
+.settings-section h4 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.settings-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.style-danger-zone {
+  border-bottom: none;
+  padding-top: 16px;
+  padding-bottom: 0;
 }
 
 /* BURNER NUMBERS MANAGEMENT MODAL */
