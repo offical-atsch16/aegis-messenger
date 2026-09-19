@@ -15,6 +15,15 @@
   <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
+  <!-- TOP BANNER -->
+  <div id="global-banner" class="global-banner hidden">
+    <div class="banner-content">
+      <span id="banner-badge" class="banner-badge">Hinweis</span>
+      <span id="banner-text" class="banner-text">Willkommen bei AegisChat!</span>
+    </div>
+    <button id="close-banner-btn" class="icon-btn banner-close-btn" aria-label="Banner Schließen">&times;</button>
+  </div>
+
   <!-- Dynamic Gradient Ambient Background -->
   <div class="app-background">
     <div class="glow-sphere glow-1"></div>
@@ -129,7 +138,26 @@
       </div>
       <p class="tagline">Keine E-Mail oder Handynummer erforderlich. Du erhältst automatisch eine 8-stellige Haupt-ID.</p>
 
-      <form id="register-form" onsubmit="return false;">
+      <!-- INVITE CODE STEP (shown if require_invite_code is enabled) -->
+      <div id="register-invite-step" class="hidden">
+        <div class="form-group">
+          <label for="reg-invite-code">Einladungscode (Invite Code)</label>
+          <div class="input-wrapper">
+            <input type="text" id="reg-invite-code" placeholder="z. B. AEGIS-X7K2M9" autocomplete="off">
+          </div>
+        </div>
+        <div class="modal-actions-btn">
+          <button id="verify-invite-code-btn" type="button" class="btn primary-btn">
+            <span>Code Prüfen</span>
+          </button>
+          <button id="close-register-modal-btn-1" type="button" class="btn secondary-btn" style="margin-top: 8px;">
+            <span>Abbrechen</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- CREDENTIALS STEP -->
+      <form id="register-credentials-step" onsubmit="return false;">
         <div class="form-group">
           <label for="reg-username">Nutzername</label>
           <div class="input-wrapper">
@@ -211,6 +239,9 @@
         </button>
         <div class="mobile-brand">AegisChat</div>
         <div style="display: flex; gap: 4px;">
+          <button id="mobile-admin-btn" class="icon-btn hidden" title="Admin Dashboard">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </button>
           <button id="mobile-panic-btn" class="icon-btn emergency-btn" title="Emergency Lock (Session wiped)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </button>
@@ -233,6 +264,9 @@
             </div>
           </div>
           <div class="profile-actions">
+            <button id="open-admin-btn" class="icon-btn hidden" title="Admin Dashboard">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </button>
             <button id="manage-burners-btn" class="icon-btn" title="Einweg-Nummern (Burner IDs) verwalten">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
             </button>
@@ -383,6 +417,140 @@
           </button>
         </form>
       </main>
+    </div>
+  </div>
+
+  <!-- MODAL: ADMIN DASHBOARD (/admin/dashboard) -->
+  <div id="admin-dashboard-modal" class="modal-overlay hidden">
+    <div class="glass-card modal-card admin-dashboard-card">
+      <div class="modal-header">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <h3>Admin Dashboard</h3>
+        </div>
+        <button id="close-admin-modal-btn" class="icon-btn" aria-label="Schließen">&times;</button>
+      </div>
+
+      <!-- ADMIN STATS GRID -->
+      <div class="admin-stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="admin-stat-users">0</div>
+          <div class="stat-label">Aktive Nutzer</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="admin-stat-burners">0</div>
+          <div class="stat-label">Burner-IDs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="admin-stat-messages">0</div>
+          <div class="stat-label">Nachrichten</div>
+        </div>
+      </div>
+
+      <!-- SETTINGS & REGISTRATION RESTRICTION TOGGLE -->
+      <div class="admin-section">
+        <div class="admin-toggle-row">
+          <div>
+            <h4>Registrierung beschränken (Invite Codes)</h4>
+            <p class="admin-desc">Wenn aktiv, können sich neue Nutzer nur mit einem gültigen Einladungscode registrieren.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="admin-require-invite-toggle">
+            <span class="slider round"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- INVITE CODES MANAGEMENT -->
+      <div class="admin-section">
+        <h4>Invite Code Generator</h4>
+        <div class="admin-invite-controls">
+          <div class="form-group inline-form-group">
+            <label for="admin-invite-type-select">Code Typ</label>
+            <select id="admin-invite-type-select" class="burner-select">
+              <option value="1">Einmal-Code (1 Nutzung)</option>
+              <option value="multi">Multi-Use Code</option>
+            </select>
+          </div>
+          <div id="admin-invite-uses-wrapper" class="form-group inline-form-group hidden">
+            <label for="admin-invite-max-uses">Nutzungslimit</label>
+            <input type="number" id="admin-invite-max-uses" value="5" min="1" max="1000">
+          </div>
+          <button id="admin-generate-invite-btn" class="btn primary-btn inline-btn">Neuen Code erstellen</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Status</th>
+                <th>Nutzung</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="admin-invites-tbody">
+              <!-- Dynamically populated invite codes -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- BANNER MANAGER -->
+      <div class="admin-section">
+        <h4>Globale Banner-Verwaltung</h4>
+        <div class="form-group">
+          <label for="admin-banner-text">Banner-Text</label>
+          <input type="text" id="admin-banner-text" placeholder="z. B. AegisChat Beta v2.0 Live!..." autocomplete="off">
+        </div>
+        <div class="admin-banner-row">
+          <div class="form-group flex-1">
+            <label for="admin-banner-type">Typ</label>
+            <select id="admin-banner-type">
+              <option value="info">Info (Blau)</option>
+              <option value="warning">Warning (Gelb)</option>
+              <option value="beta">Beta-Hinweis (Lila/Cyan)</option>
+            </select>
+          </div>
+          <div class="form-group flex-1">
+            <label for="admin-banner-location">Anzeigeort</label>
+            <select id="admin-banner-location">
+              <option value="home">Nur Homepage</option>
+              <option value="global">Global (Homepage & Chat)</option>
+            </select>
+          </div>
+        </div>
+        <div class="admin-toggle-row" style="margin-top: 10px;">
+          <span>Banner Aktivieren</span>
+          <label class="switch">
+            <input type="checkbox" id="admin-banner-enable-toggle">
+            <span class="slider round"></span>
+          </label>
+        </div>
+        <button id="admin-save-banner-btn" class="btn primary-btn" style="margin-top: 12px;">Banner Einstellungen Speichern</button>
+      </div>
+
+      <!-- USER MANAGEMENT & FREEZE TOOL -->
+      <div class="admin-section">
+        <h4>Nutzer-Sperrfunktion (Account-Freeze)</h4>
+        <div class="table-responsive">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Nutzername</th>
+                <th>Haupt-ID</th>
+                <th>Status</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-tbody">
+              <!-- Dynamically populated users -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
