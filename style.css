@@ -1309,3 +1309,201 @@ input:focus, select:focus, textarea:focus {
     max-width: 85%;
   }
 }
+
+/* --- FILE UPLOAD & ATTACHMENT STYLES --- */
+
+.attach-btn {
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+  margin-right: 4px;
+}
+
+.attach-btn:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.file-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  padding: 10px 16px;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  backdrop-filter: blur(10px);
+}
+
+.file-preview-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--accent);
+}
+
+.file-preview-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-preview-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.file-preview-size {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.upload-progress-container {
+  width: 100%;
+  height: 4px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  transition: width 0.2s ease;
+}
+
+/* Encrypted Attachment Cards in Chat */
+.media-card {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-width: 280px;
+}
+
+.media-card-img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: transform 0.2s ease;
+}
+
+.media-card-img:hover {
+  transform: scale(1.02);
+}
+
+.file-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  margin-top: 6px;
+  margin-bottom: 6px;
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: var(--transition-fast);
+}
+
+.file-attachment-card:hover {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: var(--accent);
+}
+
+.file-attachment-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.file-attachment-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-attachment-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-attachment-size {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.file-attachment-dl-btn {
+  margin-left: auto;
+  color: var(--accent-light);
+  flex-shrink: 0;
+}
+
+/* Lightbox Modal */
+.lightbox-card {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-modal);
+}
+
+.lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lightbox-filename {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  overflow: auto;
+}
+
+.lightbox-body img {
+  max-width: 85vw;
+  max-height: 75vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.file-loading-spinner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 8px 0;
+}

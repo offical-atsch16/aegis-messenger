@@ -589,6 +589,69 @@ export default {
         }
       }
 
+      // 11. UPLOAD FILE ENDPOINT (/api/upload)
+      if (url.pathname === '/api/upload' && request.method === 'POST') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+
+        const blobBuffer = await request.arrayBuffer();
+        if (!blobBuffer || blobBuffer.byteLength === 0) {
+          return new Response(JSON.stringify({ error: 'Keine Datei-Daten empfangen.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const fileId = crypto.randomUUID();
+        const uploadUrl = `${cleanBaseUrl}/storage/v1/object/chat-attachments/${fileId}`;
+
+        const uploadHeaders = getSupabaseHeaders(token || serviceRoleKey);
+        uploadHeaders['Content-Type'] = 'application/octet-stream';
+        uploadHeaders['x-upsert'] = 'true';
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: uploadHeaders,
+          body: blobBuffer
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.text();
+          return new Response(JSON.stringify({ error: `Upload fehlgeschlagen: ${errData}` }), { status: uploadRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const fileUrl = `/api/files/${fileId}`;
+        return new Response(JSON.stringify({ file_url: fileUrl, file_id: fileId }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 12. GET ENCRYPTED FILE ENDPOINT (/api/files/:id)
+      if (url.pathname.startsWith('/api/files/') && request.method === 'GET') {
+        const fileId = url.pathname.replace('/api/files/', '');
+        if (!fileId) {
+          return new Response(JSON.stringify({ error: 'Datei-ID erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const storageUrl = `${cleanBaseUrl}/storage/v1/object/public/chat-attachments/${fileId}`;
+        const fetchRes = await fetch(storageUrl, {
+          headers: getSupabaseHeaders()
+        });
+
+        if (!fetchRes.ok) {
+          return new Response(JSON.stringify({ error: 'Datei nicht gefunden.' }), { status: fetchRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const fileData = await fetchRes.arrayBuffer();
+        return new Response(fileData, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=31536000, immutable'
+          }
+        });
+      }
+
       return new Response(JSON.stringify({ error: 'Endpoint nicht gefunden.' }), { status: 404 });
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message || 'Serverfehler im Cloudflare Worker.' }), { status: 500 });
