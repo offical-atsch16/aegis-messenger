@@ -1,5 +1,5 @@
 // Cloudflare Pages Worker (`_worker.js`)
-// AegisChat Secured Proxy to Supabase
+// AegisChat Secured Proxy to Supabase with Admin & Invite System
 
 export default {
   async fetch(request, env, ctx) {
@@ -107,17 +107,321 @@ export default {
       }
     };
 
+    // Helper to verify admin token and return user profile or null
+    const verifyAdminToken = async (token) => {
+      const authUser = await verifyUserToken(token);
+      if (!authUser) return null;
+
+      try {
+        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${authUser.id}&select=*`, {
+          headers: getSupabaseHeaders(token)
+        });
+        if (!profRes.ok) return null;
+        const profData = await profRes.json();
+        if (profData && profData.length > 0 && profData[0].is_admin && !profData[0].is_disabled) {
+          return { user: authUser, profile: profData[0] };
+        }
+      } catch (e) {
+        return null;
+      }
+      return null;
+    };
+
     try {
-      // 3. AUTH REGISTER (/api/auth/register)
+      // 3. PUBLIC SETTINGS ENDPOINT (/api/settings/public)
+      if (url.pathname === '/api/settings/public' && request.method === 'GET') {
+        const res = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?select=*`, {
+          headers: getSupabaseHeaders()
+        });
+        const data = await res.json();
+
+        let require_invite_code = false;
+        let banner_config = {
+          enabled: false,
+          text: '',
+          type: 'info', // 'info', 'warning', 'beta'
+          location: 'global' // 'home', 'global'
+        };
+
+        if (res.ok && Array.isArray(data)) {
+          data.forEach(item => {
+            if (item.key === 'require_invite_code') {
+              require_invite_code = !!(item.value && item.value.enabled);
+            }
+            if (item.key === 'banner_config') {
+              banner_config = item.value || banner_config;
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({
+          require_invite_code,
+          banner_config
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 4. VERIFY INVITE CODE (/api/invite/verify)
+      if (url.pathname === '/api/invite/verify' && request.method === 'POST') {
+        const body = await request.json();
+        const { code } = body;
+
+        if (!code || typeof code !== 'string') {
+          return new Response(JSON.stringify({ error: 'Code ist erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const cleanCode = code.trim().toUpperCase();
+
+        const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
+          headers: getSupabaseHeaders()
+        });
+        const inviteData = await inviteRes.json();
+
+        if (!inviteRes.ok || !inviteData || inviteData.length === 0) {
+          return new Response(JSON.stringify({ valid: false, error: 'Ungültiger Einladungscode.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const invite = inviteData[0];
+
+        if (!invite.is_active || invite.used_count >= invite.max_uses) {
+          return new Response(JSON.stringify({ valid: false, error: 'Einladungscode ist abgelaufen oder wurde bereits zu oft verwendet.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // Increment used_count
+        const newCount = invite.used_count + 1;
+        const newActive = newCount < invite.max_uses;
+
+        await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}`, {
+          method: 'PATCH',
+          headers: {
+            ...getSupabaseHeaders(),
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify({
+            used_count: newCount,
+            is_active: newActive
+          })
+        });
+
+        return new Response(JSON.stringify({ valid: true, message: 'Einladungscode erfolgreich verifiziert!' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 5. ADMIN SETTINGS (/api/admin/settings)
+      if (url.pathname === '/api/admin/settings') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'GET') {
+          const res = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?select=*`, {
+            headers: getSupabaseHeaders(token)
+          });
+          const data = await res.json();
+          return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json();
+          const { key, value } = body;
+
+          if (!key || value === undefined) {
+            return new Response(JSON.stringify({ error: 'key und value erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          const upsertRes = await fetch(`${cleanBaseUrl}/rest/v1/system_settings`, {
+            method: 'POST',
+            headers: {
+              ...getSupabaseHeaders(token),
+              'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify({ key, value })
+          });
+
+          const upsertData = await upsertRes.json();
+          return new Response(JSON.stringify(upsertData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      // 6. ADMIN INVITES MANAGEMENT (/api/admin/invites)
+      if (url.pathname === '/api/admin/invites') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'GET') {
+          const res = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?select=*&order=created_at.desc`, {
+            headers: getSupabaseHeaders(token)
+          });
+          const data = await res.json();
+          return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json();
+          const { max_uses, code: customCode } = body;
+
+          // Generate a random 8-character code if not provided
+          const code = customCode ? customCode.trim().toUpperCase() : 'AEGIS-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+          const maxUsesNum = typeof max_uses === 'number' && max_uses > 0 ? max_uses : 1;
+
+          const createRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes`, {
+            method: 'POST',
+            headers: {
+              ...getSupabaseHeaders(token),
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify({
+              code: code,
+              created_by: adminCtx.user.id,
+              max_uses: maxUsesNum,
+              used_count: 0,
+              is_active: true
+            })
+          });
+
+          const createData = await createRes.json();
+          return new Response(JSON.stringify(createData), { status: createRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'DELETE') {
+          const codeToDelete = url.searchParams.get('code');
+          if (!codeToDelete) {
+            return new Response(JSON.stringify({ error: 'code Parameter erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          const delRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${codeToDelete}`, {
+            method: 'DELETE',
+            headers: getSupabaseHeaders(token)
+          });
+
+          return new Response(null, { status: delRes.status });
+        }
+      }
+
+      // 7. ADMIN STATS ENDPOINT (/api/admin/stats)
+      if (url.pathname === '/api/admin/stats' && request.method === 'GET') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // Fetch counts using exact headers
+        const [usersRes, burnersRes, msgsRes] = await Promise.all([
+          fetch(`${cleanBaseUrl}/rest/v1/profiles?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } }),
+          fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } }),
+          fetch(`${cleanBaseUrl}/rest/v1/messages?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } })
+        ]);
+
+        const getCount = (res) => {
+          const range = res.headers.get('content-range');
+          if (range && range.includes('/')) {
+            return parseInt(range.split('/')[1], 10) || 0;
+          }
+          return 0;
+        };
+
+        return new Response(JSON.stringify({
+          activeUsers: getCount(usersRes),
+          burnerNumbers: getCount(burnersRes),
+          messageCount: getCount(msgsRes)
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 8. ADMIN USER MANAGEMENT (/api/admin/users)
+      if (url.pathname === '/api/admin/users' && request.method === 'GET') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const res = await fetch(`${cleanBaseUrl}/rest/v1/profiles?select=id,username,main_number,is_disabled,is_admin,created_at&order=created_at.desc`, {
+          headers: getSupabaseHeaders(token)
+        });
+        const data = await res.json();
+        return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 9. ADMIN ACCOUNT FREEZE TOGGLE (/api/admin/users/toggle-freeze)
+      if (url.pathname === '/api/admin/users/toggle-freeze' && request.method === 'POST') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const body = await request.json();
+        const { user_id, is_disabled } = body;
+
+        if (!user_id || is_disabled === undefined) {
+          return new Response(JSON.stringify({ error: 'user_id und is_disabled erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const updateRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${user_id}`, {
+          method: 'PATCH',
+          headers: {
+            ...getSupabaseHeaders(token),
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify({ is_disabled: is_disabled })
+        });
+
+        const updateData = await updateRes.json();
+        return new Response(JSON.stringify(updateData), { status: updateRes.status, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // 10. AUTH REGISTER (/api/auth/register)
       if (url.pathname === '/api/auth/register' && request.method === 'POST') {
         const body = await request.json();
-        const { username, password, main_number, encrypted_private_key, public_key } = body;
+        const { username, password, main_number, encrypted_private_key, public_key, invite_code } = body;
 
         if (!username || !password || !main_number || !encrypted_private_key || !public_key) {
           return new Response(JSON.stringify({ error: 'Fehlende Felder für Registrierung.' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' }
           });
+        }
+
+        // Check if registration requires invite code globally
+        const settingsRes = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?key=eq.require_invite_code&select=*`, {
+          headers: getSupabaseHeaders()
+        });
+        const settingsData = await settingsRes.json();
+
+        let requireInvite = false;
+        if (settingsRes.ok && settingsData && settingsData.length > 0) {
+          requireInvite = !!(settingsData[0].value && settingsData[0].value.enabled);
+        }
+
+        if (requireInvite) {
+          if (!invite_code) {
+            return new Response(JSON.stringify({ error: 'Einladungscode erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          // Verify invite code again on backend
+          const cleanCode = invite_code.trim().toUpperCase();
+          const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
+            headers: getSupabaseHeaders()
+          });
+          const inviteData = await inviteRes.json();
+
+          if (!inviteRes.ok || !inviteData || inviteData.length === 0 || !inviteData[0].is_active || inviteData[0].used_count >= inviteData[0].max_uses) {
+            return new Response(JSON.stringify({ error: 'Ungültiger oder abgelaufener Einladungscode.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
         }
 
         const syntheticEmail = `${username.toLowerCase()}@aegis.internal`;
@@ -238,7 +542,8 @@ export default {
             main_number: main_number,
             encrypted_private_key: encrypted_private_key,
             public_key: public_key,
-            is_disabled: false
+            is_disabled: false,
+            is_admin: false
           })
         });
 
@@ -261,7 +566,7 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 4. AUTH LOGIN (/api/auth/login)
+      // 11. AUTH LOGIN (/api/auth/login)
       if (url.pathname === '/api/auth/login' && request.method === 'POST') {
         const body = await request.json();
         const { identifier, password } = body;
@@ -327,7 +632,7 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 5. ACCOUNT DEACTIVATION (/api/auth/deactivate)
+      // 12. ACCOUNT DEACTIVATION (/api/auth/deactivate)
       if (url.pathname === '/api/auth/deactivate' && request.method === 'POST') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -360,7 +665,7 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto erfolgreich deaktiviert.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 6. PERMANENT ACCOUNT DELETION ("Self-Destruct") (/api/auth/delete-account)
+      // 13. PERMANENT ACCOUNT DELETION ("Self-Destruct") (/api/auth/delete-account)
       if (url.pathname === '/api/auth/delete-account' && (request.method === 'POST' || request.method === 'DELETE')) {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -403,7 +708,7 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto unwiderruflich gelöscht.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 7. RESOLVE PUBLIC KEY (/api/profiles/resolve)
+      // 14. RESOLVE PUBLIC KEY (/api/profiles/resolve)
       if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
         const number = url.searchParams.get('number');
         if (!number) {
@@ -451,7 +756,7 @@ export default {
         return new Response(JSON.stringify({ error: 'Nummer nicht gefunden oder inaktiv.' }), { status: 404 });
       }
 
-      // 8. CONTACTS MANAGEMENT (/api/contacts)
+      // 15. CONTACTS MANAGEMENT (/api/contacts)
       if (url.pathname === '/api/contacts') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -499,7 +804,7 @@ export default {
         }
       }
 
-      // 9. BURNER NUMBERS MANAGEMENT (/api/burners)
+      // 16. BURNER NUMBERS MANAGEMENT (/api/burners)
       if (url.pathname === '/api/burners') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -537,7 +842,7 @@ export default {
         }
       }
 
-      // 10. MESSAGES ENDPOINT (/api/messages)
+      // 17. MESSAGES ENDPOINT (/api/messages)
       if (url.pathname === '/api/messages') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;

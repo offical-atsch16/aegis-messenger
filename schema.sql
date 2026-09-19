@@ -8,7 +8,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. PROFILES TABLE
--- Stores user identity metadata, main 8-digit ID, public key, wrapped private key, and account status
+-- Stores user identity metadata, main 8-digit ID, public key, wrapped private key, account status, and admin role flag
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL,
@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   encrypted_private_key TEXT NOT NULL,
   public_key TEXT NOT NULL,
   is_disabled BOOLEAN DEFAULT FALSE NOT NULL,
+  is_admin BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -70,6 +71,26 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender_number ON public.messages(sender_
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at);
 
 
+-- 5. SYSTEM SETTINGS TABLE
+-- Stores key-value global system configuration (e.g., 'require_invite_code', 'banner_config')
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL
+);
+
+
+-- 6. INVITE CODES TABLE
+-- Stores beta invitation codes with usage limits
+CREATE TABLE IF NOT EXISTS public.invite_codes (
+  code TEXT PRIMARY KEY,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  max_uses INT DEFAULT 1 NOT NULL,
+  used_count INT DEFAULT 0 NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+
 -- =========================================================
 -- ROW LEVEL SECURITY (RLS) & POLICIES
 -- =========================================================
@@ -79,6 +100,8 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.disposable_numbers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invite_codes ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES POLICIES
 CREATE POLICY "Profiles viewable by anyone"
@@ -130,6 +153,32 @@ CREATE POLICY "Anyone can view relevant messages"
 CREATE POLICY "Anyone can delete relevant messages"
   ON public.messages FOR DELETE
   USING (true);
+
+
+-- SYSTEM SETTINGS POLICIES
+CREATE POLICY "System settings viewable by anyone"
+  ON public.system_settings FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admins can insert or update system settings"
+  ON public.system_settings FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+    )
+  );
+
+
+-- INVITE CODES POLICIES
+CREATE POLICY "Admins can manage invite codes"
+  ON public.invite_codes FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+    )
+  );
 
 
 -- =========================================================
