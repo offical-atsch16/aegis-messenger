@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   main_number VARCHAR(8) UNIQUE NOT NULL,
   encrypted_private_key TEXT NOT NULL,
   public_key TEXT NOT NULL,
+  panic_password_hash TEXT,
   is_disabled BOOLEAN DEFAULT FALSE NOT NULL,
   is_admin BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL

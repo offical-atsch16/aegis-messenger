@@ -30,11 +30,18 @@ let verifiedInviteCode = null;
 let publicBannerConfig = null;
 
 // Privacy & Chat Settings State
-let activeSelfDestructTimer = 'off'; // 'off', '5m', '1h', '24h'
+let activeSelfDestructTimer = 'off'; // 'off', '10s', '1m', '1h', '24h'
 let typingTimeout = null;
 
 let onboardingCurrentStep = 1;
 let selectedFile = null;
+
+// Voice Recording & Media State
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceTimerInterval = null;
+let recordingSeconds = 0;
+let activeAudioObjectURLs = new Set();
 
 function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return '0 B';
@@ -139,6 +146,189 @@ function clearSelectedFile() {
   if (progressContainer) progressContainer.classList.add('hidden');
   const progressBar = document.getElementById('upload-progress-bar');
   if (progressBar) progressBar.style.width = '0%';
+}
+
+async function startVoiceRecording() {
+  if (!activeContact) {
+    showToast("Bitte zuerst einen Kontakt auswählen.", true);
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    recordingSeconds = 0;
+
+    let options = {};
+    if (typeof MediaRecorder !== 'undefined') {
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        options = { mimeType: 'audio/webm;codecs=opus' };
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+        options = { mimeType: 'audio/ogg;codecs=opus' };
+      }
+    }
+
+    mediaRecorder = new MediaRecorder(stream, options);
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        audioChunks.push(e.data);
+      }
+    };
+
+    mediaRecorder.start();
+
+    const micBtn = document.getElementById('mic-btn');
+    if (micBtn) micBtn.classList.add('recording');
+
+    const recBar = document.getElementById('voice-recording-bar');
+    if (recBar) recBar.classList.remove('hidden');
+
+    const timerEl = document.getElementById('recording-timer');
+    if (timerEl) timerEl.textContent = '00:00';
+
+    if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+    voiceTimerInterval = setInterval(() => {
+      recordingSeconds++;
+      const mins = String(Math.floor(recordingSeconds / 60)).padStart(2, '0');
+      const secs = String(recordingSeconds % 60).padStart(2, '0');
+      if (timerEl) timerEl.textContent = `${mins}:${secs}`;
+    }, 1000);
+
+  } catch (err) {
+    showToast("Zugriff auf Mikrofon verweigert oder nicht unterstützt.", true);
+  }
+}
+
+async function stopAndSendVoiceRecording() {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+  mediaRecorder.onstop = async () => {
+    if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+    const micBtn = document.getElementById('mic-btn');
+    if (micBtn) micBtn.classList.remove('recording');
+    const recBar = document.getElementById('voice-recording-bar');
+    if (recBar) recBar.classList.add('hidden');
+
+    if (audioChunks.length === 0 || recordingSeconds === 0) {
+      showToast("Aufnahme zu kurz.", true);
+      return;
+    }
+
+    const mimeType = mediaRecorder.mimeType || 'audio/webm';
+    const audioBlob = new Blob(audioChunks, { type: mimeType });
+    audioChunks = [];
+
+    if (!activeContact) return;
+
+    try {
+      showToast("Verschlüssele und sende Sprachnachricht...");
+      const arrayBuffer = await audioBlob.arrayBuffer();
+
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const ciphertextBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        activeContact.sharedKey,
+        arrayBuffer
+      );
+
+      const combinedBuffer = new Uint8Array(iv.byteLength + ciphertextBuffer.byteLength);
+      combinedBuffer.set(iv, 0);
+      combinedBuffer.set(new Uint8Array(ciphertextBuffer), iv.byteLength);
+
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+        },
+        body: combinedBuffer
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error('Upload der Sprachnachricht fehlgeschlagen.');
+      }
+
+      const uploadData = await uploadRes.json();
+      const senderNumber = document.getElementById('send-as-select').value || currentUser.main_number;
+
+      const voicePayloadText = JSON.stringify({
+        type: 'voice',
+        file_url: uploadData.file_url,
+        file_id: uploadData.file_id,
+        duration: recordingSeconds,
+        mime_type: mimeType
+      });
+
+      const encryptedPayloadStr = await encryptPayload(voicePayloadText, activeContact.sharedKey);
+
+      const msgRes = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+        },
+        body: JSON.stringify({
+          sender_number: senderNumber,
+          recipient_number: activeContact.number,
+          encrypted_payload: encryptedPayloadStr
+        })
+      });
+
+      if (!msgRes.ok) {
+        throw new Error('Fehler beim Senden der Sprachnachricht.');
+      }
+
+      let expiresAt = null;
+      if (activeSelfDestructTimer === '10s') expiresAt = Date.now() + 10 * 1000;
+      else if (activeSelfDestructTimer === '1m') expiresAt = Date.now() + 60 * 1000;
+      else if (activeSelfDestructTimer === '1h') expiresAt = Date.now() + 3600 * 1000;
+      else if (activeSelfDestructTimer === '24h') expiresAt = Date.now() + 24 * 3600 * 1000;
+
+      const msgObj = {
+        id: generate8DigitId(),
+        sender_number: senderNumber,
+        recipient_number: activeContact.number,
+        text: voicePayloadText,
+        type: 'own',
+        timestamp: Date.now(),
+        expiresAt: expiresAt,
+        status: 'sent'
+      };
+
+      appendMessageUI(msgObj, true);
+      saveChatMessage(activeContact.number, msgObj);
+      playSoundFeedback('send');
+
+      if (expiresAt) {
+        scheduleSelfDestruct(msgObj.id, activeContact.number, expiresAt - Date.now());
+      }
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  };
+
+  mediaRecorder.stop();
+  if (mediaRecorder.stream) {
+    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+  }
+}
+
+function cancelVoiceRecording() {
+  if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = null;
+    mediaRecorder.stop();
+    if (mediaRecorder.stream) {
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    }
+  }
+  audioChunks = [];
+  const micBtn = document.getElementById('mic-btn');
+  if (micBtn) micBtn.classList.remove('recording');
+  const recBar = document.getElementById('voice-recording-bar');
+  if (recBar) recBar.classList.add('hidden');
 }
 
 
@@ -418,12 +608,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   await fetchPublicSettings();
   checkSessionState();
   setupEventListeners();
+  setupTabBlurProtection();
 
   // Check URL route for Admin Dashboard (/admin/dashboard)
   if (window.location.pathname === '/admin/dashboard') {
     openAdminDashboard();
   }
 });
+
+async function hashPanicPassword(password) {
+  const enc = new TextEncoder();
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", enc.encode(password));
+  return btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+}
+
+function setupTabBlurProtection() {
+  const toggleOverlay = (isBlurred) => {
+    const overlay = document.getElementById('tab-blur-overlay');
+    if (!overlay) return;
+    if (currentUser && isBlurred) {
+      overlay.classList.remove('hidden');
+    } else {
+      overlay.classList.add('hidden');
+    }
+  };
+
+  window.addEventListener('blur', () => toggleOverlay(true));
+  window.addEventListener('focus', () => toggleOverlay(false));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      toggleOverlay(true);
+    } else {
+      toggleOverlay(false);
+    }
+  });
+}
 
 function checkSessionState() {
   const sessionStr = sessionStorage.getItem(SESSION_KEY);
@@ -482,6 +701,11 @@ function clearSessionData() {
   myBurnerNumbers = [];
   activeContact = null;
   verifiedInviteCode = null;
+
+  activeAudioObjectURLs.forEach(url => {
+    try { URL.revokeObjectURL(url); } catch (e) {}
+  });
+  activeAudioObjectURLs.clear();
 
   if (realtimeChannel && supabaseClient) {
     try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
@@ -647,8 +871,19 @@ function setupEventListeners() {
   });
 
   document.getElementById('export-keys-btn').addEventListener('click', handleExportKeysBackup);
+  const savePanicBtn = document.getElementById('save-panic-password-btn');
+  if (savePanicBtn) savePanicBtn.addEventListener('click', handleSavePanicPassword);
   document.getElementById('deactivate-account-btn').addEventListener('click', handleDeactivateAccount);
   document.getElementById('delete-account-btn').addEventListener('click', handleDeleteAccount);
+
+  // Voice Recording Listeners
+  const micBtn = document.getElementById('mic-btn');
+  const stopRecBtn = document.getElementById('stop-recording-btn');
+  const cancelRecBtn = document.getElementById('cancel-recording-btn');
+
+  if (micBtn) micBtn.addEventListener('click', startVoiceRecording);
+  if (stopRecBtn) stopRecBtn.addEventListener('click', stopAndSendVoiceRecording);
+  if (cancelRecBtn) cancelRecBtn.addEventListener('click', cancelVoiceRecording);
 
   // Contact Prompt Bar
   document.getElementById('prompt-save-btn').addEventListener('click', handleSavePromptContact);
@@ -882,6 +1117,20 @@ async function handleLogin() {
     return;
   }
 
+  // Check if entered password matches Panic Password (Duress PIN)
+  if (password) {
+    const enteredHash = await hashPanicPassword(password);
+    const storedPanicHash = localStorage.getItem('aegis_panic_hash');
+    if (storedPanicHash && enteredHash === storedPanicHash) {
+      // Silent complete wipe-out
+      clearSessionData();
+      localStorage.clear();
+      statusEl.textContent = 'Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.';
+      showToast("Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen.", true);
+      return;
+    }
+  }
+
   submitBtn.disabled = true;
   statusEl.textContent = 'Melde an und entschlüssele Private Key...';
 
@@ -1046,6 +1295,11 @@ async function loadAdminStats() {
       document.getElementById('admin-stat-users').textContent = data.activeUsers || 0;
       document.getElementById('admin-stat-burners').textContent = data.burnerNumbers || 0;
       document.getElementById('admin-stat-messages').textContent = data.messageCount || 0;
+
+      const storageSizeEl = document.getElementById('admin-stat-storage-size');
+      const storageFilesEl = document.getElementById('admin-stat-storage-files');
+      if (storageSizeEl) storageSizeEl.textContent = formatFileSize(data.storageSizeBytes || 0);
+      if (storageFilesEl) storageFilesEl.textContent = data.storageCount || 0;
     }
   } catch (e) {
     console.error("Load admin stats error:", e);
@@ -1065,6 +1319,10 @@ async function loadAdminSettings() {
           if (toggle) toggle.checked = !!(item.value && item.value.enabled);
           publicRequireInviteCode = toggle ? toggle.checked : false;
         }
+        if (item.key === 'maintenance_mode') {
+          const toggle = document.getElementById('admin-maintenance-toggle');
+          if (toggle) toggle.checked = !!(item.value && item.value.enabled);
+        }
         if (item.key === 'banner_config') {
           const cfg = item.value || {};
           publicBannerConfig = cfg;
@@ -1079,6 +1337,47 @@ async function loadAdminSettings() {
   } catch (e) {
     console.error("Load admin settings error:", e);
   }
+}
+
+async function handleToggleMaintenanceMode(e) {
+  const isEnabled = e.target.checked;
+  try {
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        key: 'maintenance_mode',
+        value: { enabled: isEnabled, message: 'Plattform befindet sich derzeit im Wartungsmodus.' }
+      })
+    });
+    if (res.ok) {
+      showToast(`Wartungsmodus ${isEnabled ? 'aktiviert' : 'deaktiviert'}.`);
+    } else {
+      e.target.checked = !isEnabled;
+      showToast("Fehler beim Speichern des Wartungsmodus.", true);
+    }
+  } catch (err) {
+    e.target.checked = !isEnabled;
+    showToast(err.message, true);
+  }
+}
+
+async function handleSavePanicPassword() {
+  const panicInput = document.getElementById('settings-panic-password');
+  if (!panicInput) return;
+  const panicPass = panicInput.value.trim();
+  if (!panicPass) {
+    showToast("Bitte ein Panik-Passwort eingeben.", true);
+    return;
+  }
+  const panicHash = await hashPanicPassword(panicPass);
+  localStorage.setItem('aegis_panic_hash', panicHash);
+  panicInput.value = '';
+  document.getElementById('settings-modal').classList.add('hidden');
+  showToast("Panik-Passwort erfolgreich gespeichert!");
 }
 
 async function handleToggleRequireInvite(e) {
@@ -1843,7 +2142,8 @@ async function handleSendMessage(e) {
     }
 
     let expiresAt = null;
-    if (activeSelfDestructTimer === '5m') expiresAt = Date.now() + 5 * 60 * 1000;
+    if (activeSelfDestructTimer === '10s') expiresAt = Date.now() + 10 * 1000;
+    else if (activeSelfDestructTimer === '1m') expiresAt = Date.now() + 60 * 1000;
     else if (activeSelfDestructTimer === '1h') expiresAt = Date.now() + 3600 * 1000;
     else if (activeSelfDestructTimer === '24h') expiresAt = Date.now() + 24 * 3600 * 1000;
 
@@ -1950,7 +2250,9 @@ function appendMessageUI(msgObj, isNew = false) {
 
   let messageContentHtml = '';
   let isFileMessage = false;
+  let isVoiceMessage = false;
   let fileMeta = null;
+  let voiceMeta = null;
 
   try {
     if (msgObj.text && msgObj.text.startsWith('{')) {
@@ -1958,11 +2260,110 @@ function appendMessageUI(msgObj, isNew = false) {
       if (parsed && parsed.type === 'file' && parsed.file_url) {
         isFileMessage = true;
         fileMeta = parsed;
+      } else if (parsed && parsed.type === 'voice' && parsed.file_url) {
+        isVoiceMessage = true;
+        voiceMeta = parsed;
       }
     }
   } catch (e) {}
 
-  if (isFileMessage && fileMeta) {
+  if (isVoiceMessage && voiceMeta) {
+    const voiceContainerId = `voice-${msgObj.id || Math.random().toString(36).substr(2, 9)}`;
+    const formatTime = (s) => {
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+    };
+
+    messageContentHtml = `
+      <div id="${voiceContainerId}">
+        <div class="file-loading-spinner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <span>Entschlüssele Sprachnachricht...</span>
+        </div>
+      </div>
+    `;
+
+    const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
+    const contact = contacts.find(c => c.number === contactNum);
+
+    if (contact && contact.sharedKey) {
+      fetchAndDecryptFileBlob(voiceMeta.file_url, contact.sharedKey, voiceMeta.mime_type || 'audio/webm')
+        .then(objectUrl => {
+          activeAudioObjectURLs.add(objectUrl);
+          const targetEl = document.getElementById(voiceContainerId);
+          if (!targetEl) return;
+
+          const durFormatted = formatTime(voiceMeta.duration || 0);
+
+          targetEl.innerHTML = `
+            <div class="voice-player-card">
+              <button class="voice-play-btn" id="pbtn-${msgObj.id}">▶</button>
+              <div class="voice-player-info">
+                <div class="voice-progress-track" id="ptrack-${msgObj.id}">
+                  <div class="voice-progress-fill" id="pfill-${msgObj.id}"></div>
+                </div>
+                <div class="voice-time-display">
+                  <span id="ptime-${msgObj.id}">0:00</span>
+                  <span>${durFormatted}</span>
+                </div>
+              </div>
+            </div>
+          `;
+
+          const audio = new Audio(objectUrl);
+          const playBtn = document.getElementById(`pbtn-${msgObj.id}`);
+          const fillEl = document.getElementById(`pfill-${msgObj.id}`);
+          const timeEl = document.getElementById(`ptime-${msgObj.id}`);
+          const trackEl = document.getElementById(`ptrack-${msgObj.id}`);
+
+          if (playBtn) {
+            playBtn.addEventListener('click', () => {
+              if (audio.paused) {
+                document.querySelectorAll('audio').forEach(a => { if (a !== audio) a.pause(); });
+                audio.play();
+                playBtn.textContent = '⏸';
+              } else {
+                audio.pause();
+                playBtn.textContent = '▶';
+              }
+            });
+          }
+
+          audio.addEventListener('timeupdate', () => {
+            if (audio.duration) {
+              const pct = (audio.currentTime / audio.duration) * 100;
+              if (fillEl) fillEl.style.width = `${pct}%`;
+              if (timeEl) timeEl.textContent = formatTime(audio.currentTime);
+            }
+          });
+
+          audio.addEventListener('ended', () => {
+            if (playBtn) playBtn.textContent = '▶';
+            if (fillEl) fillEl.style.width = '0%';
+            if (timeEl) timeEl.textContent = '0:00';
+          });
+
+          if (trackEl) {
+            trackEl.addEventListener('click', (e) => {
+              const rect = trackEl.getBoundingClientRect();
+              const clickPos = (e.clientX - rect.left) / rect.width;
+              if (audio.duration) {
+                audio.currentTime = clickPos * audio.duration;
+              }
+            });
+          }
+
+          container.scrollTop = container.scrollHeight;
+        })
+        .catch(err => {
+          const targetEl = document.getElementById(voiceContainerId);
+          if (targetEl) {
+            targetEl.innerHTML = `<div class="file-loading-spinner" style="color: var(--danger);">Fehler beim Entschlüsseln der Sprachnachricht.</div>`;
+          }
+        });
+    }
+  } else if (isFileMessage && fileMeta) {
     const attachmentContainerId = `attach-${msgObj.id || Math.random().toString(36).substr(2, 9)}`;
     messageContentHtml = `
       <div id="${attachmentContainerId}">

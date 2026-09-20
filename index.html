@@ -326,6 +326,15 @@
 
       <!-- CHAT MAIN VIEWPORT -->
       <main class="chat-viewport">
+        <!-- TAB BLUR SCREENSHOT PROTECTION OVERLAY -->
+        <div id="tab-blur-overlay" class="tab-blur-overlay hidden">
+          <div class="tab-blur-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h3>Chat geschützt</h3>
+            <p>Tab befindet sich im Hintergrund. Inhalt zum Sichtschutz überlagert.</p>
+          </div>
+        </div>
+
         <!-- SAVE CONTACT PROMPT BAR -->
         <div id="contact-prompt-bar" class="prompt-bar hidden">
           <div class="prompt-text">
@@ -364,7 +373,8 @@
               <label for="self-destruct-select" style="font-size: 10px; margin-bottom: 2px;">⏱️ Timer:</label>
               <select id="self-destruct-select" class="sender-dropdown">
                 <option value="off">Aus</option>
-                <option value="5m">5 Min</option>
+                <option value="10s">10 Sek</option>
+                <option value="1m">1 Min</option>
                 <option value="1h">1 Std</option>
                 <option value="24h">24 Std</option>
               </select>
@@ -408,11 +418,27 @@
           <div id="upload-progress-bar" class="upload-progress-bar" style="width: 0%;"></div>
         </div>
 
+        <!-- VOICE RECORDING ACTIVE BAR -->
+        <div id="voice-recording-bar" class="voice-recording-bar hidden">
+          <div class="voice-recording-status">
+            <span class="recording-pulse-dot"></span>
+            <span id="recording-timer" class="recording-timer font-mono">00:00</span>
+            <span class="recording-label">Aufnahme läuft...</span>
+          </div>
+          <div class="voice-recording-actions">
+            <button type="button" id="cancel-recording-btn" class="btn secondary-btn style-danger prompt-btn">Abbrechen</button>
+            <button type="button" id="stop-recording-btn" class="btn primary-btn prompt-btn">Senden 🎙️</button>
+          </div>
+        </div>
+
         <!-- MESSAGE INPUT FORM -->
         <form id="send-message-form" class="message-input-area hidden">
           <input type="file" id="file-input" class="hidden">
           <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto auswählen">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button type="button" id="mic-btn" class="icon-btn mic-btn" title="Sprachnachricht aufnehmen">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
           </button>
           <input type="text" id="message-input" placeholder="Schreibe eine sichere E2EE Nachricht..." autocomplete="off">
           <button type="submit" id="send-btn" class="btn primary-btn send-btn" aria-label="Nachricht senden">
@@ -470,7 +496,15 @@
           </div>
           <div class="stat-card">
             <div class="stat-value" id="admin-stat-messages">0</div>
-            <div class="stat-label">Nachrichten</div>
+            <div class="stat-label">Verschlüsselte Nachrichten</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="admin-stat-storage-size">0 B</div>
+            <div class="stat-label">Storage Verbrauch</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="admin-stat-storage-files">0</div>
+            <div class="stat-label">Gespeicherte Dateien</div>
           </div>
         </div>
 
@@ -483,6 +517,20 @@
             </div>
             <label class="switch">
               <input type="checkbox" id="admin-require-invite-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- MAINTENANCE MODE TOGGLE CARD -->
+        <div class="admin-section admin-card-box">
+          <div class="admin-toggle-row">
+            <div class="admin-toggle-info">
+              <h4>Wartungsmodus (Maintenance Mode)</h4>
+              <p class="admin-desc">Sperrt die Plattform vorübergehend für normale Nutzer. Anmeldungen sind nur für Administratoren gestattet.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="admin-maintenance-toggle">
               <span class="slider round"></span>
             </label>
           </div>
@@ -713,6 +761,22 @@
           <button id="export-keys-btn" class="btn secondary-btn full-width-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>Schlüssel-Backup herunterladen</span>
+          </button>
+        </div>
+
+        <!-- CARD 3: PANIK-PASSWORT / DURESS PROTECTION -->
+        <div class="settings-card-segment style-danger-zone">
+          <div class="settings-segment-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <h4 style="color: var(--warning);">Panik-Passwort (Duress PIN)</h4>
+          </div>
+          <p class="settings-desc">Lege ein zweites Passwort fest ("Panik-Passwort"). Wird beim Login dieses Passwort eingegeben, täuscht die App einen normalen Login vor, löscht aber stumm und unwiderruflich ALLE lokalen Schlüssel, Kontakte und Sessions (Wipe-out).</p>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label for="settings-panic-password">Neues Panik-Passwort</label>
+            <input type="password" id="settings-panic-password" placeholder="Panik-Passwort festlegen..." autocomplete="off">
+          </div>
+          <button id="save-panic-password-btn" class="btn secondary-btn style-warning full-width-btn">
+            <span>Panik-Passwort Speichern</span>
           </button>
         </div>
 
