@@ -78,6 +78,8 @@ export default {
       });
     }
 
+    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+
     // Helper for Supabase REST requests
     const getSupabaseHeaders = (customAuthToken) => {
       const headers = {
@@ -90,6 +92,15 @@ export default {
         headers['Authorization'] = `Bearer ${supabaseAnonKey}`;
       }
       return headers;
+    };
+
+    // Helper for Supabase Admin / Service Role requests (bypasses RLS)
+    const getServiceRoleHeaders = () => {
+      return {
+        'apikey': serviceRoleKey,
+        'Authorization': `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json'
+      };
     };
 
     // Helper to verify user token and return user or null
@@ -142,6 +153,10 @@ export default {
           type: 'info', // 'info', 'warning', 'beta'
           location: 'global' // 'home', 'global'
         };
+        let maintenance_mode = {
+          enabled: false,
+          message: 'Plattform befindet sich derzeit im Wartungsmodus.'
+        };
 
         if (res.ok && Array.isArray(data)) {
           data.forEach(item => {
@@ -151,12 +166,16 @@ export default {
             if (item.key === 'banner_config') {
               banner_config = item.value || banner_config;
             }
+            if (item.key === 'maintenance_mode') {
+              maintenance_mode = item.value || maintenance_mode;
+            }
           });
         }
 
         return new Response(JSON.stringify({
           require_invite_code,
-          banner_config
+          banner_config,
+          maintenance_mode
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -171,8 +190,9 @@ export default {
 
         const cleanCode = code.trim().toUpperCase();
 
+        // Use service role key to bypass RLS for unauthenticated users
         const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
-          headers: getSupabaseHeaders()
+          headers: getServiceRoleHeaders()
         });
         const inviteData = await inviteRes.json();
 
@@ -185,22 +205,6 @@ export default {
         if (!invite.is_active || invite.used_count >= invite.max_uses) {
           return new Response(JSON.stringify({ valid: false, error: 'Einladungscode ist abgelaufen oder wurde bereits zu oft verwendet.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
         }
-
-        // Increment used_count
-        const newCount = invite.used_count + 1;
-        const newActive = newCount < invite.max_uses;
-
-        await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}`, {
-          method: 'PATCH',
-          headers: {
-            ...getSupabaseHeaders(),
-            'Prefer': 'return=representation'
-          },
-          body: JSON.stringify({
-            used_count: newCount,
-            is_active: newActive
-          })
-        });
 
         return new Response(JSON.stringify({ valid: true, message: 'Einladungscode erfolgreich verifiziert!' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -257,7 +261,7 @@ export default {
 
         if (request.method === 'GET') {
           const res = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?select=*&order=created_at.desc`, {
-            headers: getSupabaseHeaders(token)
+            headers: getServiceRoleHeaders()
           });
           const data = await res.json();
           return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
@@ -274,7 +278,7 @@ export default {
           const createRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes`, {
             method: 'POST',
             headers: {
-              ...getSupabaseHeaders(token),
+              ...getServiceRoleHeaders(),
               'Prefer': 'return=representation'
             },
             body: JSON.stringify({
@@ -298,7 +302,7 @@ export default {
 
           const delRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${codeToDelete}`, {
             method: 'DELETE',
-            headers: getSupabaseHeaders(token)
+            headers: getServiceRoleHeaders()
           });
 
           return new Response(null, { status: delRes.status });
@@ -315,14 +319,20 @@ export default {
           return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
 
-        // Fetch counts using exact headers
-        const [usersRes, burnersRes, msgsRes] = await Promise.all([
-          fetch(`${cleanBaseUrl}/rest/v1/profiles?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } }),
-          fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } }),
-          fetch(`${cleanBaseUrl}/rest/v1/messages?select=count`, { headers: { ...getSupabaseHeaders(token), 'Prefer': 'count=exact' } })
+        // Fetch counts and storage statistics using exact headers
+        const [usersRes, burnersRes, msgsRes, storageListRes] = await Promise.all([
+          fetch(`${cleanBaseUrl}/rest/v1/profiles?select=count`, { headers: { ...getServiceRoleHeaders(), 'Prefer': 'count=exact' } }),
+          fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?select=count`, { headers: { ...getServiceRoleHeaders(), 'Prefer': 'count=exact' } }),
+          fetch(`${cleanBaseUrl}/rest/v1/messages?select=count`, { headers: { ...getServiceRoleHeaders(), 'Prefer': 'count=exact' } }),
+          fetch(`${cleanBaseUrl}/storage/v1/object/list/chat-attachments`, {
+            method: 'POST',
+            headers: getServiceRoleHeaders(),
+            body: JSON.stringify({ prefix: '', limit: 10000 })
+          }).catch(() => null)
         ]);
 
         const getCount = (res) => {
+          if (!res) return 0;
           const range = res.headers.get('content-range');
           if (range && range.includes('/')) {
             return parseInt(range.split('/')[1], 10) || 0;
@@ -330,10 +340,28 @@ export default {
           return 0;
         };
 
+        let storageCount = 0;
+        let storageSizeBytes = 0;
+
+        if (storageListRes && storageListRes.ok) {
+          try {
+            const objects = await storageListRes.json();
+            if (Array.isArray(objects)) {
+              storageCount = objects.length;
+              storageSizeBytes = objects.reduce((acc, obj) => {
+                const sz = (obj.metadata && obj.metadata.size) || obj.size || 0;
+                return acc + sz;
+              }, 0);
+            }
+          } catch (e) {}
+        }
+
         return new Response(JSON.stringify({
           activeUsers: getCount(usersRes),
           burnerNumbers: getCount(burnersRes),
-          messageCount: getCount(msgsRes)
+          messageCount: getCount(msgsRes),
+          storageCount: storageCount,
+          storageSizeBytes: storageSizeBytes
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -396,32 +424,49 @@ export default {
           });
         }
 
-        // Check if registration requires invite code globally
-        const settingsRes = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?key=eq.require_invite_code&select=*`, {
+        // Check maintenance mode
+        const settingsRes = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?select=*`, {
           headers: getSupabaseHeaders()
         });
         const settingsData = await settingsRes.json();
 
         let requireInvite = false;
-        if (settingsRes.ok && settingsData && settingsData.length > 0) {
-          requireInvite = !!(settingsData[0].value && settingsData[0].value.enabled);
+        let isMaintenance = false;
+
+        if (settingsRes.ok && Array.isArray(settingsData)) {
+          settingsData.forEach(item => {
+            if (item.key === 'require_invite_code') {
+              requireInvite = !!(item.value && item.value.enabled);
+            }
+            if (item.key === 'maintenance_mode') {
+              isMaintenance = !!(item.value && item.value.enabled);
+            }
+          });
         }
 
-        if (requireInvite) {
+        if (isMaintenance) {
+          return new Response(JSON.stringify({ error: 'Plattform befindet sich derzeit im Wartungsmodus. Registrierungen sind vorübergehend deaktiviert.' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        let verifiedInviteRecord = null;
+
+        if (requireInvite || invite_code) {
           if (!invite_code) {
             return new Response(JSON.stringify({ error: 'Einladungscode erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
           }
 
-          // Verify invite code again on backend
+          // Verify invite code using Service Role Key
           const cleanCode = invite_code.trim().toUpperCase();
           const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
-            headers: getSupabaseHeaders()
+            headers: getServiceRoleHeaders()
           });
           const inviteData = await inviteRes.json();
 
           if (!inviteRes.ok || !inviteData || inviteData.length === 0 || !inviteData[0].is_active || inviteData[0].used_count >= inviteData[0].max_uses) {
             return new Response(JSON.stringify({ error: 'Ungültiger oder abgelaufener Einladungscode.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
           }
+
+          verifiedInviteRecord = inviteData[0];
         }
 
         const syntheticEmail = `${username.toLowerCase()}@aegis.internal`;
@@ -555,6 +600,24 @@ export default {
           });
         }
 
+        // Increment used_count on successful registration
+        if (verifiedInviteRecord) {
+          const newCount = verifiedInviteRecord.used_count + 1;
+          const newActive = newCount < verifiedInviteRecord.max_uses;
+
+          await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${verifiedInviteRecord.code}`, {
+            method: 'PATCH',
+            headers: {
+              ...getServiceRoleHeaders(),
+              'Prefer': 'return=representation'
+            },
+            body: JSON.stringify({
+              used_count: newCount,
+              is_active: newActive
+            })
+          });
+        }
+
         return new Response(JSON.stringify({
           user: {
             id: user.id,
@@ -573,6 +636,31 @@ export default {
 
         if (!identifier || !password) {
           return new Response(JSON.stringify({ error: 'Nutzername/ID und Passwort erforderlich.' }), { status: 400 });
+        }
+
+        // Check maintenance mode
+        const settingsRes = await fetch(`${cleanBaseUrl}/rest/v1/system_settings?key=eq.maintenance_mode&select=*`, {
+          headers: getSupabaseHeaders()
+        });
+        const settingsData = await settingsRes.json();
+        const isMaintenance = settingsRes.ok && settingsData && settingsData.length > 0 && !!(settingsData[0].value && settingsData[0].value.enabled);
+
+        if (isMaintenance) {
+          // Resolve profile to check if user is admin before blocking
+          let checkUsername = identifier;
+          let profQuery = `username=eq.${encodeURIComponent(identifier)}`;
+          if (/^\d{8}$/.test(identifier)) {
+            profQuery = `main_number=eq.${identifier}`;
+          }
+
+          const checkProfRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?${profQuery}&select=is_admin,is_disabled`, {
+            headers: getSupabaseHeaders()
+          });
+          const checkProfData = await checkProfRes.json();
+
+          if (!checkProfRes.ok || !checkProfData || checkProfData.length === 0 || !checkProfData[0].is_admin) {
+            return new Response(JSON.stringify({ error: 'Plattform befindet sich derzeit im Wartungsmodus. Anmeldungen sind nur für Administratoren gestattet.' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+          }
         }
 
         let resolvedUsername = identifier;

@@ -1807,6 +1807,176 @@ input:checked + .slider:before {
   border-radius: 12px;
 }
 
+/* TAB BLUR SCREENSHOT PROTECTION OVERLAY */
+.tab-blur-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(7, 10, 19, 0.85);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.tab-blur-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-main);
+  max-width: 320px;
+}
+
+.tab-blur-content svg {
+  color: var(--accent-cyan);
+}
+
+.tab-blur-content h3 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.tab-blur-content p {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* VOICE RECORDING BAR & MIC BUTTON */
+.mic-btn {
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.mic-btn:hover {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.mic-btn.recording {
+  color: white;
+  background: var(--danger);
+  animation: pulseRed 1s infinite;
+}
+
+.voice-recording-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(239, 68, 68, 0.12);
+  border-top: 1px solid rgba(239, 68, 68, 0.3);
+  backdrop-filter: blur(12px);
+}
+
+.voice-recording-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recording-pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 10px var(--danger);
+  animation: pulseRed 1s infinite alternate;
+}
+
+@keyframes pulseRed {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.3); opacity: 1; }
+}
+
+.recording-timer {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.recording-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.voice-recording-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* CUSTOM VOICE MESSAGE AUDIO PLAYER UI */
+.voice-player-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  min-width: 220px;
+}
+
+.voice-play-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  touch-action: manipulation;
+}
+
+.voice-play-btn:hover {
+  transform: scale(1.05);
+  background: var(--accent-hover);
+}
+
+.voice-player-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 6px;
+}
+
+.voice-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.voice-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent));
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+.voice-time-display {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
 /* RESPONSIVE BREAKPOINTS (MOBILE & TABLET OVERHAUL) */
 @media (max-width: 768px) {
   body {
