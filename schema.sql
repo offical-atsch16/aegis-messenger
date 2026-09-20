@@ -172,6 +172,14 @@ CREATE POLICY "Admins can insert or update system settings"
 
 
 -- INVITE CODES POLICIES
+CREATE POLICY "Anyone can view invite codes"
+  ON public.invite_codes FOR SELECT
+  USING (true);
+
+CREATE POLICY "Anyone can update invite codes"
+  ON public.invite_codes FOR UPDATE
+  USING (true);
+
 CREATE POLICY "Admins can manage invite codes"
   ON public.invite_codes FOR ALL
   USING (

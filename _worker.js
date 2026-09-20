@@ -94,11 +94,12 @@ export default {
       return headers;
     };
 
-    // Helper for Supabase Admin / Service Role requests (bypasses RLS)
-    const getServiceRoleHeaders = () => {
+    // Helper for Supabase Admin / Service Role requests (bypasses RLS if key present, else uses custom token or anon)
+    const getServiceRoleHeaders = (customAuthToken) => {
+      const key = env.SUPABASE_SERVICE_ROLE_KEY || customAuthToken || supabaseAnonKey;
       return {
-        'apikey': serviceRoleKey,
-        'Authorization': `Bearer ${serviceRoleKey}`,
+        'apikey': key,
+        'Authorization': `Bearer ${key}`,
         'Content-Type': 'application/json'
       };
     };
@@ -191,7 +192,7 @@ export default {
         const cleanCode = code.trim().toUpperCase();
 
         // Use service role key to bypass RLS for unauthenticated users
-        const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
+        const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(cleanCode)}&select=*`, {
           headers: getServiceRoleHeaders()
         });
         const inviteData = await inviteRes.json();
@@ -261,7 +262,7 @@ export default {
 
         if (request.method === 'GET') {
           const res = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?select=*&order=created_at.desc`, {
-            headers: getServiceRoleHeaders()
+            headers: getServiceRoleHeaders(token)
           });
           const data = await res.json();
           return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
@@ -271,14 +272,16 @@ export default {
           const body = await request.json();
           const { max_uses, code: customCode } = body;
 
-          // Generate a random 8-character code if not provided
-          const code = customCode ? customCode.trim().toUpperCase() : 'AEGIS-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+          // Generate a random 8-character code if customCode is empty or not provided
+          const code = customCode && typeof customCode === 'string' && customCode.trim().length > 0
+            ? customCode.trim().toUpperCase()
+            : 'AEGIS-' + Math.random().toString(36).substring(2, 8).toUpperCase();
           const maxUsesNum = typeof max_uses === 'number' && max_uses > 0 ? max_uses : 1;
 
           const createRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes`, {
             method: 'POST',
             headers: {
-              ...getServiceRoleHeaders(),
+              ...getServiceRoleHeaders(token),
               'Prefer': 'return=representation'
             },
             body: JSON.stringify({
@@ -300,9 +303,9 @@ export default {
             return new Response(JSON.stringify({ error: 'code Parameter erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
           }
 
-          const delRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${codeToDelete}`, {
+          const delRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(codeToDelete)}`, {
             method: 'DELETE',
-            headers: getServiceRoleHeaders()
+            headers: getServiceRoleHeaders(token)
           });
 
           return new Response(null, { status: delRes.status });
@@ -457,7 +460,7 @@ export default {
 
           // Verify invite code using Service Role Key
           const cleanCode = invite_code.trim().toUpperCase();
-          const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${cleanCode}&select=*`, {
+          const inviteRes = await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(cleanCode)}&select=*`, {
             headers: getServiceRoleHeaders()
           });
           const inviteData = await inviteRes.json();
@@ -605,10 +608,10 @@ export default {
           const newCount = verifiedInviteRecord.used_count + 1;
           const newActive = newCount < verifiedInviteRecord.max_uses;
 
-          await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${verifiedInviteRecord.code}`, {
+          await fetch(`${cleanBaseUrl}/rest/v1/invite_codes?code=eq.${encodeURIComponent(verifiedInviteRecord.code)}`, {
             method: 'PATCH',
             headers: {
-              ...getServiceRoleHeaders(),
+              ...getServiceRoleHeaders(accessToken),
               'Prefer': 'return=representation'
             },
             body: JSON.stringify({

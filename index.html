@@ -174,6 +174,13 @@
           </div>
         </div>
 
+        <div id="credentials-invite-wrapper" class="form-group hidden">
+          <label for="reg-credentials-invite-code">Einladungscode</label>
+          <div class="input-wrapper">
+            <input type="text" id="reg-credentials-invite-code" placeholder="z. B. AEGIS-X7K2M9" autocomplete="off">
+          </div>
+        </div>
+
         <div class="modal-actions-btn">
           <button id="submit-register-btn" type="button" class="btn primary-btn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
@@ -542,6 +549,10 @@
         <div class="admin-section admin-card-box">
           <h4>Invite Code Generator</h4>
           <div class="admin-invite-controls">
+            <div class="form-group inline-form-group">
+              <label for="admin-invite-code-custom">Wunsch-Code (Optional)</label>
+              <input type="text" id="admin-invite-code-custom" placeholder="z. B. VIP2026" autocomplete="off">
+            </div>
             <div class="form-group inline-form-group">
               <label for="admin-invite-type-select">Code Typ</label>
               <select id="admin-invite-type-select" class="burner-select">

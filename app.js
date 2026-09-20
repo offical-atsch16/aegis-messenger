@@ -988,9 +988,12 @@ function openRegisterModal() {
   document.getElementById('reg-username').value = '';
   document.getElementById('reg-password').value = '';
   document.getElementById('reg-invite-code').value = '';
+  const credInvite = document.getElementById('reg-credentials-invite-code');
+  if (credInvite) credInvite.value = verifiedInviteCode || '';
 
   const inviteStep = document.getElementById('register-invite-step');
   const credsStep = document.getElementById('register-credentials-step');
+  const credInviteWrapper = document.getElementById('credentials-invite-wrapper');
 
   if (publicRequireInviteCode && !verifiedInviteCode) {
     inviteStep.classList.remove('hidden');
@@ -998,6 +1001,9 @@ function openRegisterModal() {
   } else {
     inviteStep.classList.add('hidden');
     credsStep.classList.remove('hidden');
+    if (credInviteWrapper) {
+      credInviteWrapper.classList.remove('hidden');
+    }
   }
 
   document.getElementById('register-modal').classList.remove('hidden');
@@ -1029,11 +1035,16 @@ async function handleVerifyInviteCode() {
     }
 
     verifiedInviteCode = inputCode.toUpperCase();
+    const credInvite = document.getElementById('reg-credentials-invite-code');
+    if (credInvite) credInvite.value = verifiedInviteCode;
+
     statusEl.textContent = '';
     showToast("Einladungscode akzeptiert! Bitte wähle Nutzername & Passwort.");
 
     document.getElementById('register-invite-step').classList.add('hidden');
     document.getElementById('register-credentials-step').classList.remove('hidden');
+    const credInviteWrapper = document.getElementById('credentials-invite-wrapper');
+    if (credInviteWrapper) credInviteWrapper.classList.remove('hidden');
   } catch (err) {
     statusEl.textContent = err.message;
     showToast(err.message, true);
@@ -1047,6 +1058,8 @@ async function handleRegistration() {
   const password = document.getElementById('reg-password').value;
   const statusEl = document.getElementById('register-status');
   const submitBtn = document.getElementById('submit-register-btn');
+  const credInvite = document.getElementById('reg-credentials-invite-code');
+  const finalInviteCode = (credInvite && credInvite.value.trim()) || verifiedInviteCode || '';
 
   if (!username || !password) {
     statusEl.textContent = 'Bitte Nutzername und Passwort ausfüllen.';
@@ -1075,7 +1088,7 @@ async function handleRegistration() {
         main_number: mainNumber,
         encrypted_private_key: encryptedPrivateKeyStr,
         public_key: pubKeyB64,
-        invite_code: verifiedInviteCode
+        invite_code: finalInviteCode
       })
     });
 
@@ -1451,6 +1464,8 @@ async function loadAdminInvites() {
 
 async function handleAdminGenerateInvite() {
   const type = document.getElementById('admin-invite-type-select').value;
+  const customCodeInput = document.getElementById('admin-invite-code-custom');
+  const customCode = customCodeInput ? customCodeInput.value.trim() : '';
   let maxUses = 1;
 
   if (type === 'multi') {
@@ -1465,16 +1480,22 @@ async function handleAdminGenerateInvite() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
       },
-      body: JSON.stringify({ max_uses: maxUses })
+      body: JSON.stringify({ max_uses: maxUses, code: customCode })
     });
 
     if (res.ok) {
       const created = await res.json();
       const codeObj = Array.isArray(created) ? created[0] : created;
-      showToast(`Einladungscode ${codeObj.code} generiert!`);
-      loadAdminInvites();
+      if (codeObj && codeObj.code) {
+        showToast(`Einladungscode ${codeObj.code} generiert!`);
+        if (customCodeInput) customCodeInput.value = '';
+        loadAdminInvites();
+      } else {
+        showToast(`Fehler: ${created.message || created.error || 'Code konnte nicht erstellt werden.'}`, true);
+      }
     } else {
-      showToast("Fehler beim Erstellen des Codes.", true);
+      const errData = await res.json();
+      showToast(`Fehler: ${errData.message || errData.error || 'Code konnte nicht erstellt werden.'}`, true);
     }
   } catch (err) {
     showToast(err.message, true);
