@@ -28,6 +28,8 @@ let realtimeChannel = null;
 let publicRequireInviteCode = false;
 let verifiedInviteCode = null;
 let publicBannerConfig = null;
+let vapidPublicKey = null;
+let swRegistration = null;
 
 // Privacy & Chat Settings State
 let activeSelfDestructTimer = 'off'; // 'off', '10s', '1m', '1h', '24h'
@@ -944,6 +946,118 @@ async function checkBackendHealth() {
   }
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        swRegistration = reg;
+        checkPushSubscriptionState();
+      })
+      .catch(err => console.error('Service Worker registration error:', err));
+  }
+}
+
+function checkIosPwaNotice() {
+  const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isStandalone = ('standalone' in window.navigator) && window.navigator.standalone;
+  const noticeEl = document.getElementById('ios-pwa-notice');
+  if (noticeEl) {
+    if (isIos && !isStandalone) {
+      noticeEl.classList.remove('hidden');
+    } else {
+      noticeEl.classList.add('hidden');
+    }
+  }
+}
+
+async function checkPushSubscriptionState() {
+  const toggle = document.getElementById('settings-push-toggle');
+  if (!toggle || !swRegistration || !swRegistration.pushManager) return;
+
+  try {
+    const sub = await swRegistration.pushManager.getSubscription();
+    toggle.checked = !!sub;
+  } catch (e) {
+    toggle.checked = false;
+  }
+}
+
+async function handleTogglePushNotifications(e) {
+  const toggle = e.target;
+  const isChecked = toggle.checked;
+
+  if (!swRegistration || !swRegistration.pushManager) {
+    showToast("Push-Benachrichtigungen werden von diesem Browser nicht unterstützt.", true);
+    toggle.checked = false;
+    return;
+  }
+
+  if (isChecked) {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        showToast("Benachrichtigungs-Berechtigung verweigert.", true);
+        toggle.checked = false;
+        return;
+      }
+
+      if (!vapidPublicKey) {
+        showToast("VAPID Key konnte nicht vom Server geladen werden.", true);
+        toggle.checked = false;
+        return;
+      }
+
+      const subscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
+
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+        },
+        body: JSON.stringify({ subscription: subscription })
+      });
+
+      if (res.ok) {
+        showToast("Push-Benachrichtigungen erfolgreich aktiviert!");
+      } else {
+        throw new Error('Speichern der Subscription fehlgeschlagen.');
+      }
+    } catch (err) {
+      showToast(`Push-Aktivierung fehlgeschlagen: ${err.message}`, true);
+      toggle.checked = false;
+    }
+  } else {
+    try {
+      const sub = await swRegistration.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+      }
+      await fetch('/api/push/subscribe', {
+        method: 'DELETE',
+        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}
+      });
+      showToast("Push-Benachrichtigungen deaktiviert.");
+    } catch (err) {
+      showToast(`Fehler beim Deaktivieren: ${err.message}`, true);
+    }
+  }
+}
+
 async function fetchPublicSettings() {
   try {
     const res = await fetch('/api/settings/public');
@@ -952,6 +1066,7 @@ async function fetchPublicSettings() {
       const data = await res.json();
       publicRequireInviteCode = !!data.require_invite_code;
       publicBannerConfig = data.banner_config || null;
+      if (data.vapidPublicKey) vapidPublicKey = data.vapidPublicKey;
       renderGlobalBanner();
     }
   } catch (err) {
@@ -997,6 +1112,7 @@ function renderGlobalBanner() {
 // --- INITIALIZATION & SESSION MANAGEMENT ---
 
 document.addEventListener('DOMContentLoaded', async () => {
+  registerServiceWorker();
   await checkBackendHealth();
   await fetchPublicSettings();
   checkSessionState();
@@ -1244,6 +1360,10 @@ function setupEventListeners() {
 
   document.getElementById('skip-onboarding-btn').addEventListener('click', completeOnboardingTour);
 
+  // Push Notifications toggle
+  const pushToggle = document.getElementById('settings-push-toggle');
+  if (pushToggle) pushToggle.addEventListener('change', handleTogglePushNotifications);
+
   // Settings Modal controls
   document.getElementById('open-settings-btn').addEventListener('click', () => {
     if (currentUser) {
@@ -1252,6 +1372,8 @@ function setupEventListeners() {
       if (mainIdEl) mainIdEl.textContent = currentUser.main_number || '--------';
       if (unameEl) unameEl.textContent = currentUser.username || '--';
     }
+    checkIosPwaNotice();
+    checkPushSubscriptionState();
     document.getElementById('settings-modal').classList.remove('hidden');
   });
   document.getElementById('close-settings-modal-btn').addEventListener('click', () => {

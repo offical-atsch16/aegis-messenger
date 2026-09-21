@@ -1,0 +1,17 @@
+{
+  "name": "AegisChat Messenger",
+  "short_name": "AegisChat",
+  "description": "Anonymer, spurenloser E2EE Web Messenger",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
