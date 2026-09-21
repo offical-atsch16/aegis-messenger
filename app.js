@@ -43,6 +43,27 @@ let voiceTimerInterval = null;
 let recordingSeconds = 0;
 let activeAudioObjectURLs = new Set();
 
+// View Once State
+let isViewOnceActive = false;
+
+// WebRTC E2EE Audio & Video Call State
+let peerConnection = null;
+let localMediaStream = null;
+let remoteMediaStream = null;
+let currentCallType = null; // 'audio' or 'video'
+let activeCallPeerNumber = null;
+let isCallInitiator = false;
+let callTimerInterval = null;
+let callSeconds = 0;
+let ringtoneOscillator = null;
+
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
 function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
@@ -66,7 +87,7 @@ async function encryptFile(file, sharedKey, onProgress) {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload', true);
+    xhr.open('POST', '/api/upload?folder=files', true);
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     }
@@ -237,7 +258,7 @@ async function stopAndSendVoiceRecording() {
       combinedBuffer.set(iv, 0);
       combinedBuffer.set(new Uint8Array(ciphertextBuffer), iv.byteLength);
 
-      const uploadRes = await fetch('/api/upload', {
+      const uploadRes = await fetch('/api/upload?folder=audios', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -258,8 +279,15 @@ async function stopAndSendVoiceRecording() {
         file_url: uploadData.file_url,
         file_id: uploadData.file_id,
         duration: recordingSeconds,
-        mime_type: mimeType
+        mime_type: mimeType,
+        view_once: isViewOnceActive
       });
+
+      if (isViewOnceActive) {
+        isViewOnceActive = false;
+        const viewOnceBtn = document.getElementById('view-once-toggle-btn');
+        if (viewOnceBtn) viewOnceBtn.classList.remove('active');
+      }
 
       const encryptedPayloadStr = await encryptPayload(voicePayloadText, activeContact.sharedKey);
 
@@ -379,6 +407,370 @@ function playSoundFeedback(type) {
       osc.stop(now + 0.15);
     }
   } catch (e) {}
+}
+
+// --- CALL OVERLAY & WEBRTC SIGNALING LOGIC ---
+
+function playRingtoneSound(isIncoming = false) {
+  stopRingtoneSound();
+  try {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    ringtoneOscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    ringtoneOscillator.connect(gain);
+    gain.connect(audioContext.destination);
+
+    const now = audioContext.currentTime;
+    gain.gain.setValueAtTime(0.12, now);
+
+    if (isIncoming) {
+      ringtoneOscillator.type = 'sine';
+      ringtoneOscillator.frequency.setValueAtTime(440, now);
+      ringtoneOscillator.frequency.setValueAtTime(880, now + 0.25);
+    } else {
+      ringtoneOscillator.type = 'sine';
+      ringtoneOscillator.frequency.setValueAtTime(425, now);
+    }
+    ringtoneOscillator.start();
+  } catch (e) {}
+}
+
+function stopRingtoneSound() {
+  if (ringtoneOscillator) {
+    try {
+      ringtoneOscillator.stop();
+      ringtoneOscillator.disconnect();
+    } catch (e) {}
+    ringtoneOscillator = null;
+  }
+}
+
+function showCallModal(state) {
+  const modal = document.getElementById('call-modal');
+  const boxOutgoing = document.getElementById('call-state-outgoing');
+  const boxIncoming = document.getElementById('call-state-incoming');
+  const boxActive = document.getElementById('call-state-active');
+
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  boxOutgoing.classList.add('hidden');
+  boxIncoming.classList.add('hidden');
+  boxActive.classList.add('hidden');
+
+  if (state === 'outgoing') boxOutgoing.classList.remove('hidden');
+  else if (state === 'incoming') boxIncoming.classList.remove('hidden');
+  else if (state === 'active') boxActive.classList.remove('hidden');
+}
+
+function hideCallModal() {
+  stopRingtoneSound();
+  if (callTimerInterval) {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+  }
+  callSeconds = 0;
+  const modal = document.getElementById('call-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function startE2eeCall(type) {
+  if (!activeContact) {
+    showToast("Bitte wähle zuerst einen Kontakt aus.", true);
+    return;
+  }
+
+  currentCallType = type;
+  activeCallPeerNumber = activeContact.number;
+  isCallInitiator = true;
+
+  const peerDisplayName = activeContact.nickname || activeContact.number;
+  document.getElementById('call-outgoing-name').textContent = `Rufe ${peerDisplayName} an...`;
+  document.getElementById('call-outgoing-subtitle').textContent = `Verschlüsselter WebRTC ${type === 'video' ? 'Video' : 'Audio'} Call`;
+  document.getElementById('call-outgoing-avatar').textContent = peerDisplayName.slice(0, 2).toUpperCase();
+
+  showCallModal('outgoing');
+  playRingtoneSound(false);
+
+  try {
+    const constraints = {
+      audio: true,
+      video: type === 'video' ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+    };
+
+    localMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    setupRTCPeerConnection();
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    await sendCallSignal('call-offer', {
+      callType: type,
+      sdp: offer
+    });
+  } catch (err) {
+    showToast(`Zugriff auf Mikrofon/Kamera fehlgeschlagen: ${err.message}`, true);
+    cleanupCallState();
+  }
+}
+
+function setupRTCPeerConnection() {
+  if (peerConnection) {
+    try { peerConnection.close(); } catch(e) {}
+  }
+
+  peerConnection = new RTCPeerConnection(rtcConfig);
+  remoteMediaStream = new MediaStream();
+
+  const remoteVideo = document.getElementById('remote-video');
+  const localVideo = document.getElementById('local-video');
+  const fallbackAvatar = document.getElementById('audio-call-fallback-avatar');
+
+  if (remoteVideo) remoteVideo.srcObject = remoteMediaStream;
+
+  if (localMediaStream) {
+    if (localVideo) {
+      if (currentCallType === 'video') {
+        localVideo.srcObject = localMediaStream;
+        localVideo.classList.remove('hidden');
+      } else {
+        localVideo.classList.add('hidden');
+      }
+    }
+
+    localMediaStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localMediaStream);
+    });
+  }
+
+  if (currentCallType === 'audio') {
+    if (fallbackAvatar) fallbackAvatar.classList.remove('hidden');
+  } else {
+    if (fallbackAvatar) fallbackAvatar.classList.add('hidden');
+  }
+
+  peerConnection.ontrack = (event) => {
+    event.streams[0].getTracks().forEach(track => {
+      remoteMediaStream.addTrack(track);
+    });
+  };
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate && activeCallPeerNumber) {
+      sendCallSignal('call-ice-candidate', { candidate: event.candidate });
+    }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    if (peerConnection) {
+      if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'closed') {
+        cleanupCallState();
+      }
+    }
+  };
+}
+
+async function sendCallSignal(event, payloadData) {
+  if (!activeCallPeerNumber) return;
+  const myNumber = document.getElementById('send-as-select').value || currentUser.main_number;
+  const signalPayload = JSON.stringify({
+    type: 'call-signal',
+    event: event,
+    sender: myNumber,
+    recipient: activeCallPeerNumber,
+    data: payloadData
+  });
+
+  const contact = contacts.find(c => c.number === activeCallPeerNumber);
+  if (!contact) return;
+
+  const encryptedPayload = await encryptPayload(signalPayload, contact.sharedKey);
+
+  if (realtimeChannel) {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'call-signal',
+      payload: { encryptedPayload, recipient: activeCallPeerNumber, sender: myNumber }
+    });
+  }
+
+  fetch('/api/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+    },
+    body: JSON.stringify({
+      sender_number: myNumber,
+      recipient_number: activeCallPeerNumber,
+      encrypted_payload: encryptedPayload
+    })
+  }).catch(() => {});
+}
+
+async function handleIncomingCallSignal(signal) {
+  const { event, sender, data } = signal;
+
+  if (event === 'call-offer') {
+    if (peerConnection && peerConnection.signalingState !== 'closed') {
+      return;
+    }
+
+    activeCallPeerNumber = sender;
+    currentCallType = data.callType || 'audio';
+    isCallInitiator = false;
+
+    const contact = contacts.find(c => c.number === sender);
+    const displayName = contact ? (contact.nickname || contact.number) : sender;
+
+    document.getElementById('call-incoming-name').textContent = `Eingehender ${currentCallType === 'video' ? 'Video' : 'Audio'}-Anruf`;
+    document.getElementById('call-incoming-subtitle').textContent = `Von: ${displayName} (E2EE Verschlüsselt)`;
+    document.getElementById('call-incoming-avatar').textContent = displayName.slice(0, 2).toUpperCase();
+
+    showCallModal('incoming');
+    playRingtoneSound(true);
+
+    window._pendingCallOffer = data.sdp;
+  } else if (event === 'call-answer') {
+    if (isCallInitiator && peerConnection) {
+      stopRingtoneSound();
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      startActiveCallUI();
+    }
+  } else if (event === 'call-ice-candidate') {
+    if (peerConnection && data.candidate) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (e) {}
+    }
+  } else if (event === 'call-end') {
+    showToast("Anruf beendet.");
+    cleanupCallState();
+  }
+}
+
+async function acceptIncomingCall() {
+  stopRingtoneSound();
+  if (!activeCallPeerNumber || !window._pendingCallOffer) {
+    cleanupCallState();
+    return;
+  }
+
+  try {
+    const constraints = {
+      audio: true,
+      video: currentCallType === 'video' ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+    };
+
+    localMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    setupRTCPeerConnection();
+
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(window._pendingCallOffer));
+    window._pendingCallOffer = null;
+
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    await sendCallSignal('call-answer', { sdp: answer });
+    startActiveCallUI();
+  } catch (err) {
+    showToast(`Fehler beim Annehmen des Anrufs: ${err.message}`, true);
+    rejectIncomingCall();
+  }
+}
+
+function rejectIncomingCall() {
+  sendCallSignal('call-end', {});
+  cleanupCallState();
+}
+
+function startActiveCallUI() {
+  stopRingtoneSound();
+  showCallModal('active');
+
+  const contact = contacts.find(c => c.number === activeCallPeerNumber);
+  const peerDisplayName = contact ? (contact.nickname || contact.number) : activeCallPeerNumber;
+  const activePeerNameEl = document.getElementById('active-call-peer-name');
+  const activeAvatarEl = document.getElementById('active-call-avatar');
+
+  if (activePeerNameEl) activePeerNameEl.textContent = peerDisplayName || 'Anrufpartner';
+  if (activeAvatarEl) activeAvatarEl.textContent = (peerDisplayName || 'An').slice(0, 2).toUpperCase();
+
+  callSeconds = 0;
+  const timerEl = document.getElementById('active-call-timer');
+  if (timerEl) timerEl.textContent = '00:00';
+
+  if (callTimerInterval) clearInterval(callTimerInterval);
+  callTimerInterval = setInterval(() => {
+    callSeconds++;
+    const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+    const s = String(callSeconds % 60).padStart(2, '0');
+    if (timerEl) timerEl.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+function cleanupCallState() {
+  stopRingtoneSound();
+  if (callTimerInterval) {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+  }
+  callSeconds = 0;
+
+  if (localMediaStream) {
+    localMediaStream.getTracks().forEach(track => track.stop());
+    localMediaStream = null;
+  }
+  if (remoteMediaStream) {
+    remoteMediaStream.getTracks().forEach(track => track.stop());
+    remoteMediaStream = null;
+  }
+  if (peerConnection) {
+    try { peerConnection.close(); } catch(e) {}
+    peerConnection = null;
+  }
+
+  const remoteVideo = document.getElementById('remote-video');
+  const localVideo = document.getElementById('local-video');
+  if (remoteVideo) remoteVideo.srcObject = null;
+  if (localVideo) localVideo.srcObject = null;
+
+  activeCallPeerNumber = null;
+  isCallInitiator = false;
+  window._pendingCallOffer = null;
+
+  hideCallModal();
+}
+
+// --- VIEW ONCE FILE BURNING ---
+
+async function burnViewOnceMedia(fileId, msgId, contactNumber) {
+  if (!fileId) return;
+
+  try {
+    await fetch('/api/files/burn', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+      },
+      body: JSON.stringify({ file_id: fileId })
+    });
+
+    if (contactNumber) {
+      const history = getChatHistory(contactNumber);
+      const updated = history.filter(m => m.id !== msgId);
+      sessionStorage.setItem(SESSION_CHAT_PREFIX + contactNumber, JSON.stringify(updated));
+    }
+
+    showToast("🔥 View Once Medium wurde dauerhaft gelöscht.");
+  } catch (err) {
+    console.error("Burn View Once error:", err);
+  }
 }
 
 function generate8DigitId() {
@@ -541,21 +933,22 @@ async function decryptPayload(payloadJsonStr, sharedKey) {
 async function checkBackendHealth() {
   try {
     const res = await fetch('/api/health');
-    const data = await res.json();
-    if (data.supabaseUrl) supabaseUrl = data.supabaseUrl;
-    if (data.supabaseAnonKey) supabaseAnonKey = data.supabaseAnonKey;
-    if (!res.ok || data.error) {
-      showToast(data.error || "Fehler beim Verbinden mit dem Worker / Supabase.", true);
+    const contentType = res.headers.get('content-type');
+    if (res.ok && contentType && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data.supabaseUrl) supabaseUrl = data.supabaseUrl;
+      if (data.supabaseAnonKey) supabaseAnonKey = data.supabaseAnonKey;
     }
   } catch (err) {
-    showToast("Backend /api/health nicht erreichbar.", true);
+    console.log("Backend offline or static mode.");
   }
 }
 
 async function fetchPublicSettings() {
   try {
     const res = await fetch('/api/settings/public');
-    if (res.ok) {
+    const contentType = res.headers.get('content-type');
+    if (res.ok && contentType && contentType.includes('application/json')) {
       const data = await res.json();
       publicRequireInviteCode = !!data.require_invite_code;
       publicBannerConfig = data.banner_config || null;
@@ -902,6 +1295,105 @@ function setupEventListeners() {
   // Messaging Form & Contact Addition
   document.getElementById('add-contact-btn').addEventListener('click', handleAddContact);
   document.getElementById('send-message-form').addEventListener('submit', handleSendMessage);
+
+  // View Once Toggle Listener
+  const viewOnceToggleBtn = document.getElementById('view-once-toggle-btn');
+  if (viewOnceToggleBtn) {
+    viewOnceToggleBtn.addEventListener('click', () => {
+      isViewOnceActive = !isViewOnceActive;
+      if (isViewOnceActive) {
+        viewOnceToggleBtn.classList.add('active');
+        showToast("View Once Modus AKTIV (Einmal-Ansicht)");
+      } else {
+        viewOnceToggleBtn.classList.remove('active');
+        showToast("View Once Modus deaktiviert");
+      }
+    });
+  }
+
+  // E2EE Audio & Video Call Listeners
+  const startAudioCallBtn = document.getElementById('start-audio-call-btn');
+  const startVideoCallBtn = document.getElementById('start-video-call-btn');
+  const cancelOutgoingCallBtn = document.getElementById('cancel-outgoing-call-btn');
+  const acceptIncomingCallBtn = document.getElementById('accept-incoming-call-btn');
+  const rejectIncomingCallBtn = document.getElementById('reject-incoming-call-btn');
+  const endCallBtn = document.getElementById('end-call-btn');
+
+  if (startAudioCallBtn) startAudioCallBtn.addEventListener('click', () => startE2eeCall('audio'));
+  if (startVideoCallBtn) startVideoCallBtn.addEventListener('click', () => startE2eeCall('video'));
+  if (cancelOutgoingCallBtn) cancelOutgoingCallBtn.addEventListener('click', rejectIncomingCall);
+  if (acceptIncomingCallBtn) acceptIncomingCallBtn.addEventListener('click', acceptIncomingCall);
+  if (rejectIncomingCallBtn) rejectIncomingCallBtn.addEventListener('click', rejectIncomingCall);
+  if (endCallBtn) endCallBtn.addEventListener('click', rejectIncomingCall);
+
+  // Call Audio / Camera Controls
+  const toggleMuteMicBtn = document.getElementById('toggle-mute-mic-btn');
+  const toggleCamBtn = document.getElementById('toggle-camera-btn');
+  const switchCamBtn = document.getElementById('switch-camera-btn');
+
+  if (toggleMuteMicBtn) {
+    toggleMuteMicBtn.addEventListener('click', () => {
+      if (localMediaStream) {
+        const audioTrack = localMediaStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+          toggleMuteMicBtn.classList.toggle('off', !audioTrack.enabled);
+          const iconOn = toggleMuteMicBtn.querySelector('.icon-mic-on');
+          const iconOff = toggleMuteMicBtn.querySelector('.icon-mic-off');
+          if (iconOn && iconOff) {
+            iconOn.classList.toggle('hidden', !audioTrack.enabled);
+            iconOff.classList.toggle('hidden', audioTrack.enabled);
+          }
+        }
+      }
+    });
+  }
+
+  if (toggleCamBtn) {
+    toggleCamBtn.addEventListener('click', () => {
+      if (localMediaStream) {
+        const videoTrack = localMediaStream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.enabled = !videoTrack.enabled;
+          toggleCamBtn.classList.toggle('off', !videoTrack.enabled);
+          const iconOn = toggleCamBtn.querySelector('.icon-cam-on');
+          const iconOff = toggleCamBtn.querySelector('.icon-cam-off');
+          if (iconOn && iconOff) {
+            iconOn.classList.toggle('hidden', !videoTrack.enabled);
+            iconOff.classList.toggle('hidden', videoTrack.enabled);
+          }
+        }
+      }
+    });
+  }
+
+  if (switchCamBtn) {
+    switchCamBtn.addEventListener('click', async () => {
+      if (localMediaStream && currentCallType === 'video') {
+        const currentTrack = localMediaStream.getVideoTracks()[0];
+        if (currentTrack) {
+          const currentFacing = currentTrack.getSettings().facingMode;
+          const newFacing = currentFacing === 'user' ? 'environment' : 'user';
+          currentTrack.stop();
+
+          try {
+            const newStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: newFacing, width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            const newVideoTrack = newStream.getVideoTracks()[0];
+            localMediaStream.removeTrack(currentTrack);
+            localMediaStream.addTrack(newVideoTrack);
+
+            const sender = peerConnection ? peerConnection.getSenders().find(s => s.track && s.track.kind === 'video') : null;
+            if (sender) sender.replaceTrack(newVideoTrack);
+
+            const localVideo = document.getElementById('local-video');
+            if (localVideo) localVideo.srcObject = localMediaStream;
+          } catch (e) {}
+        }
+      }
+    });
+  }
 
   // File Upload Attachments & Lightbox
   const attachBtn = document.getElementById('attach-file-btn');
@@ -2115,11 +2607,19 @@ async function handleSendMessage(e) {
       payloadText = JSON.stringify({
         type: 'file',
         file_url: uploadResult.file_url,
+        file_id: uploadResult.file_id,
         file_name: selectedFile.name,
         file_size: selectedFile.size,
         mime_type: selectedFile.type || 'application/octet-stream',
-        caption: text
+        caption: text,
+        view_once: isViewOnceActive
       });
+
+      if (isViewOnceActive) {
+        isViewOnceActive = false;
+        const viewOnceBtn = document.getElementById('view-once-toggle-btn');
+        if (viewOnceBtn) viewOnceBtn.classList.remove('active');
+      }
     }
 
     const encryptedPayloadStr = await encryptPayload(payloadText, activeContact.sharedKey);
@@ -2267,7 +2767,67 @@ function appendMessageUI(msgObj, isNew = false) {
     }
   } catch (e) {}
 
-  if (isVoiceMessage && voiceMeta) {
+  const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
+  const contact = contacts.find(c => c.number === contactNum);
+
+  if ((isFileMessage && fileMeta && fileMeta.view_once) || (isVoiceMessage && voiceMeta && voiceMeta.view_once)) {
+    const meta = fileMeta || voiceMeta;
+    const viewOnceCardId = `vo-${msgObj.id || Math.random().toString(36).substr(2, 9)}`;
+
+    messageContentHtml = `
+      <div id="${viewOnceCardId}">
+        <div class="view-once-card" id="btn-${viewOnceCardId}">
+          <div class="view-once-badge">1</div>
+          <div class="view-once-text">Einmal-Medium (Klicken zum Öffnen)</div>
+        </div>
+      </div>
+    `;
+
+    setTimeout(() => {
+      const btn = document.getElementById(`btn-${viewOnceCardId}`);
+      if (btn) {
+        btn.addEventListener('click', async () => {
+          if (!contact || !contact.sharedKey) return;
+          btn.innerHTML = `<div class="view-once-badge">...</div><div class="view-once-text">Entschlüssele Einmal-Medium...</div>`;
+
+          try {
+            const objectUrl = await fetchAndDecryptFileBlob(meta.file_url, contact.sharedKey, meta.mime_type || 'application/octet-stream');
+
+            if (meta.type === 'file' && meta.mime_type && meta.mime_type.startsWith('image/')) {
+              openLightbox(objectUrl, meta.file_name || 'Einmal-Bild');
+
+              const closeLightboxBtn = document.getElementById('close-lightbox-btn');
+              const onLightboxClose = () => {
+                URL.revokeObjectURL(objectUrl);
+                const targetEl = document.getElementById(viewOnceCardId);
+                if (targetEl) {
+                  targetEl.innerHTML = `<div class="view-once-card view-once-burned"><div class="view-once-badge">✓</div><div class="view-once-text">Geöffnet (Gespurt / Storage gelöscht)</div></div>`;
+                }
+                burnViewOnceMedia(meta.file_id, msgObj.id, contactNum);
+                if (closeLightboxBtn) closeLightboxBtn.removeEventListener('click', onLightboxClose);
+              };
+              if (closeLightboxBtn) closeLightboxBtn.addEventListener('click', onLightboxClose, { once: true });
+            } else {
+              const audio = new Audio(objectUrl);
+              showToast("🔊 Spiele Einmal-Audio ab...");
+              audio.play();
+              audio.onended = () => {
+                URL.revokeObjectURL(objectUrl);
+                const targetEl = document.getElementById(viewOnceCardId);
+                if (targetEl) {
+                  targetEl.innerHTML = `<div class="view-once-card view-once-burned"><div class="view-once-badge">✓</div><div class="view-once-text">Abgespielt (Gespurt / Storage gelöscht)</div></div>`;
+                }
+                burnViewOnceMedia(meta.file_id, msgObj.id, contactNum);
+              };
+            }
+          } catch (err) {
+            showToast("Fehler beim Öffnen des Einmal-Mediums.", true);
+          }
+        });
+      }
+    }, 50);
+
+  } else if (isVoiceMessage && voiceMeta) {
     const voiceContainerId = `voice-${msgObj.id || Math.random().toString(36).substr(2, 9)}`;
     const formatTime = (s) => {
       const m = Math.floor(s / 60);
@@ -2283,9 +2843,6 @@ function appendMessageUI(msgObj, isNew = false) {
         </div>
       </div>
     `;
-
-    const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
-    const contact = contacts.find(c => c.number === contactNum);
 
     if (contact && contact.sharedKey) {
       fetchAndDecryptFileBlob(voiceMeta.file_url, contact.sharedKey, voiceMeta.mime_type || 'audio/webm')
@@ -2374,9 +2931,6 @@ function appendMessageUI(msgObj, isNew = false) {
       </div>
     `;
 
-    const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
-    const contact = contacts.find(c => c.number === contactNum);
-
     if (contact && contact.sharedKey) {
       fetchAndDecryptFileBlob(fileMeta.file_url, contact.sharedKey, fileMeta.mime_type)
         .then(objectUrl => {
@@ -2454,6 +3008,19 @@ async function handleIncomingMessage(record) {
 
     const decryptedText = await decryptPayload(record.encrypted_payload, contact.sharedKey);
 
+    try {
+      if (decryptedText && decryptedText.startsWith('{')) {
+        const parsed = JSON.parse(decryptedText);
+        if (parsed && parsed.type === 'call-signal') {
+          await handleIncomingCallSignal(parsed);
+          if (record.id) {
+            fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
+          }
+          return;
+        }
+      }
+    } catch (e) {}
+
     const msgObj = {
       id: record.id || generate8DigitId(),
       sender_number: senderNumber,
@@ -2523,6 +3090,24 @@ function connectRealtimeWebSocket() {
             if (typingEl) {
               typingEl.classList.remove('hidden');
               setTimeout(() => typingEl.classList.add('hidden'), 2500);
+            }
+          }
+        })
+        .on('broadcast', { event: 'call-signal' }, async (payload) => {
+          if (payload && payload.payload) {
+            const { encryptedPayload, recipient } = payload.payload;
+            const myNumbers = getMyAllNumbers();
+            if (myNumbers.includes(recipient)) {
+              const contact = contacts.find(c => c.number === payload.payload.sender);
+              if (contact && contact.sharedKey) {
+                try {
+                  const decryptedSignalStr = await decryptPayload(encryptedPayload, contact.sharedKey);
+                  const signalObj = JSON.parse(decryptedSignalStr);
+                  if (signalObj.type === 'call-signal') {
+                    await handleIncomingCallSignal(signalObj);
+                  }
+                } catch (e) {}
+              }
             }
           }
         })
