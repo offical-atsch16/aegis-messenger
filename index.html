@@ -363,14 +363,24 @@
                 </button>
               </div>
               <span class="status-indicator">
-                <span class="lock-icon">🔒</span> <span id="active-contact-subtext">ECDH P-256 / AES-GCM</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="lock-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span id="active-contact-subtext">ECDH P-256 / AES-GCM</span>
                 <span id="typing-indicator" class="typing-text hidden">tippt gerade...</span>
               </span>
             </div>
           </div>
-          <div class="chat-header-actions" style="margin-left: auto; display: flex; gap: 10px; align-items: center;">
+
+          <div class="chat-header-actions">
+            <!-- E2EE CALL ACTIONS -->
+            <button id="start-audio-call-btn" class="icon-btn call-action-btn" title="Ende-zu-Ende verschlüsselter Audio-Anruf">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+            <button id="start-video-call-btn" class="icon-btn call-action-btn" title="Ende-zu-Ende verschlüsselter Video-Anruf">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            </button>
+
             <div class="sender-select-wrapper">
-              <label for="self-destruct-select" style="font-size: 10px; margin-bottom: 2px;">⏱️ Timer:</label>
+              <label for="self-destruct-select">⏱️ Timer:</label>
               <select id="self-destruct-select" class="sender-dropdown">
                 <option value="off">Aus</option>
                 <option value="10s">10 Sek</option>
@@ -380,7 +390,7 @@
               </select>
             </div>
             <div class="sender-select-wrapper">
-              <label for="send-as-select" style="font-size: 10px; margin-bottom: 2px;">Senden als:</label>
+              <label for="send-as-select">Senden als:</label>
               <select id="send-as-select" class="sender-dropdown">
                 <!-- Main ID & Active Burner IDs dynamically added -->
               </select>
@@ -434,15 +444,18 @@
         <!-- MESSAGE INPUT FORM -->
         <form id="send-message-form" class="message-input-area hidden">
           <input type="file" id="file-input" class="hidden">
-          <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto auswählen">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto anhängen">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <button type="button" id="view-once-toggle-btn" class="icon-btn view-once-btn" title="View Once (Einmal-Ansicht aktivieren / deaktivieren)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-size="12" font-weight="800" text-anchor="middle" fill="currentColor" stroke="none">1</text></svg>
           </button>
           <button type="button" id="mic-btn" class="icon-btn mic-btn" title="Sprachnachricht aufnehmen">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
           </button>
           <input type="text" id="message-input" placeholder="Schreibe eine sichere E2EE Nachricht..." autocomplete="off">
-          <button type="submit" id="send-btn" class="btn primary-btn send-btn" aria-label="Nachricht senden">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          <button type="submit" id="send-btn" class="btn primary-btn send-btn" title="Nachricht senden" aria-label="Nachricht senden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </form>
       </main>
@@ -897,6 +910,84 @@
       <div class="lightbox-body">
         <img id="lightbox-img" src="" alt="Vorschau">
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: E2EE AUDIO / VIDEO CALL OVERLAY -->
+  <div id="call-modal" class="modal-overlay call-overlay hidden">
+    <div class="glass-card call-card">
+
+      <!-- OUTGOING / RINGING STATE -->
+      <div id="call-state-outgoing" class="call-state-box hidden">
+        <div class="call-avatar-pulse">
+          <div class="avatar avatar-lg" id="call-outgoing-avatar">?</div>
+        </div>
+        <h3 id="call-outgoing-name">Rufe Kontakt an...</h3>
+        <p class="call-type-subtitle" id="call-outgoing-subtitle">Verschlüsselter WebRTC Call</p>
+        <div class="call-actions-row">
+          <button id="cancel-outgoing-call-btn" class="btn style-danger-btn call-control-btn" title="Anruf Abbrechen">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <span>Abbrechen</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- INCOMING CALL STATE -->
+      <div id="call-state-incoming" class="call-state-box hidden">
+        <div class="call-avatar-pulse ringing-pulse">
+          <div class="avatar avatar-lg" id="call-incoming-avatar">?</div>
+        </div>
+        <h3 id="call-incoming-name">Eingehender Anruf...</h3>
+        <p class="call-type-subtitle" id="call-incoming-subtitle">WebRTC Ende-zu-Ende Verschlüsselt</p>
+        <div class="call-actions-row">
+          <button id="accept-incoming-call-btn" class="btn primary-btn call-accept-btn" title="Anruf Annehmen">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <span>Annehmen</span>
+          </button>
+          <button id="reject-incoming-call-btn" class="btn style-danger-btn call-reject-btn" title="Anruf Ablehnen">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <span>Ablehnen</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ACTIVE CALL STATE -->
+      <div id="call-state-active" class="call-state-box hidden">
+        <div class="video-viewport-container">
+          <video id="remote-video" autoplay playsinline class="remote-video-feed"></video>
+          <video id="local-video" autoplay playsinline muted class="local-video-pip"></video>
+
+          <div id="audio-call-fallback-avatar" class="audio-call-avatar-container hidden">
+            <div class="avatar avatar-xl" id="active-call-avatar">?</div>
+            <h4 id="active-call-peer-name">Anrufpartner</h4>
+          </div>
+        </div>
+
+        <div class="call-active-bar">
+          <div class="call-timer-badge">
+            <span class="call-pulse-dot"></span>
+            <span id="active-call-timer" class="font-mono">00:00</span>
+          </div>
+
+          <div class="call-controls-group">
+            <button id="toggle-mute-mic-btn" class="icon-btn call-control-circle" title="Mikrofon Stummschalten / Aktivieren">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-mic-on"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-mic-off hidden"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            </button>
+            <button id="toggle-camera-btn" class="icon-btn call-control-circle" title="Kamera An / Aus">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-cam-on"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-cam-off hidden"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m3.56 0H14a2 2 0 0 1 2 2v4.56"/><path d="M23 7l-7 5 7 5V7z"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+            <button id="switch-camera-btn" class="icon-btn call-control-circle" title="Kamera Wechseln (Front/Back)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0-4.42-3.58-8-8-8s-8 3.58-8 8c0 1.58.46 3.05 1.25 4.3L2 19l4.7-1.25C8.03 18.54 9.5 19 11 19c4.42 0 8-3.58 8-8z"/><path d="M8 10l4-4 4 4"/><path d="M12 6v8"/></svg>
+            </button>
+            <button id="end-call-btn" class="icon-btn call-hangup-btn" title="Auflegen">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
