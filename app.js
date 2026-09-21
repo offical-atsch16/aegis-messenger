@@ -14,7 +14,13 @@ let localKeyPair = null; // { publicKey, privateKey }
 let localPubKeyB64 = null;
 let contacts = []; // Array of { number, nickname, isBurner, pubKeyB64, sharedKey }
 let myBurnerNumbers = []; // Array of { id, burner_number, active, expires_at }
+let groups = []; // Array of { id, name, members: [number1, number2, ...] }
 let activeContact = null;
+let activeGroup = null;
+
+// P2P WebRTC Full-Mesh Call State
+let meshPeerConnections = new Map(); // peerNumber -> RTCPeerConnection
+let meshRemoteStreams = new Map(); // peerNumber -> MediaStream
 let realtimeSocket = null;
 let heartbeatTimer = null;
 let html5QrScanner = null;
@@ -34,6 +40,7 @@ let swRegistration = null;
 // Privacy & Chat Settings State
 let activeSelfDestructTimer = 'off'; // 'off', '10s', '1m', '1h', '24h'
 let typingTimeout = null;
+let currentStealthMode = 'off'; // 'off', 'calculator', 'notes'
 
 let onboardingCurrentStep = 1;
 let selectedFile = null;
@@ -58,6 +65,13 @@ let isCallInitiator = false;
 let callTimerInterval = null;
 let callSeconds = 0;
 let ringtoneOscillator = null;
+
+// Voice Masking State & Web Audio API Processing Nodes
+let isVoiceMaskActive = false;
+let voiceMaskAudioCtx = null;
+let voiceMaskSourceNode = null;
+let voiceMaskDestinationNode = null;
+let maskedAudioTrack = null;
 
 const rtcConfig = {
   iceServers: [
@@ -481,8 +495,13 @@ function hideCallModal() {
 }
 
 async function startE2eeCall(type) {
-  if (!activeContact) {
-    showToast("Bitte wähle zuerst einen Kontakt aus.", true);
+  if (!activeContact && !activeGroup) {
+    showToast("Bitte zuerst einen Kontakt oder Gruppenraum auswählen.", true);
+    return;
+  }
+
+  if (activeGroup) {
+    await startMeshGroupCall(type);
     return;
   }
 
@@ -520,6 +539,185 @@ async function startE2eeCall(type) {
   }
 }
 
+async function startMeshGroupCall(type) {
+  if (!activeGroup) return;
+  currentCallType = type;
+  isCallInitiator = true;
+
+  document.getElementById('call-outgoing-name').textContent = `Starte Gruppenanruf: ${activeGroup.name}`;
+  document.getElementById('call-outgoing-subtitle').textContent = `P2P WebRTC Full-Mesh (${activeGroup.members.length + 1} Teilnehmer)`;
+  document.getElementById('call-outgoing-avatar').textContent = '👥';
+
+  showCallModal('outgoing');
+  playRingtoneSound(false);
+
+  try {
+    const constraints = {
+      audio: true,
+      video: type === 'video' ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+    };
+
+    localMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    for (const memberNumber of activeGroup.members) {
+      const pc = setupMeshPeerConnection(memberNumber);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await sendDirectCallSignal('call-offer', memberNumber, {
+        callType: type,
+        groupId: activeGroup.id,
+        sdp: offer
+      });
+    }
+
+    startActiveCallUI();
+    updateMeshVideoGridUI();
+  } catch (err) {
+    showToast(`Fehler beim Starten des Gruppenanrufs: ${err.message}`, true);
+    cleanupCallState();
+  }
+}
+
+function setupMeshPeerConnection(memberNumber) {
+  if (meshPeerConnections.has(memberNumber)) {
+    try { meshPeerConnections.get(memberNumber).close(); } catch(e) {}
+  }
+
+  const pc = new RTCPeerConnection(rtcConfig);
+  meshPeerConnections.set(memberNumber, pc);
+
+  const remoteStream = new MediaStream();
+  meshRemoteStreams.set(memberNumber, remoteStream);
+
+  if (localMediaStream) {
+    const audioTrack = (isVoiceMaskActive && maskedAudioTrack) ? maskedAudioTrack : localMediaStream.getAudioTracks()[0];
+    if (audioTrack) pc.addTrack(audioTrack, localMediaStream);
+    localMediaStream.getVideoTracks().forEach(track => pc.addTrack(track, localMediaStream));
+  }
+
+  pc.ontrack = (event) => {
+    event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    updateMeshVideoGridUI();
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      sendDirectCallSignal('call-ice-candidate', memberNumber, { candidate: event.candidate });
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+      meshPeerConnections.delete(memberNumber);
+      meshRemoteStreams.delete(memberNumber);
+      updateMeshVideoGridUI();
+    }
+  };
+
+  return pc;
+}
+
+async function sendDirectCallSignal(event, recipientNumber, payloadData) {
+  const myNumber = document.getElementById('send-as-select').value || currentUser.main_number;
+  const signalPayload = JSON.stringify({
+    type: 'call-signal',
+    event: event,
+    sender: myNumber,
+    recipient: recipientNumber,
+    data: payloadData
+  });
+
+  let contact = contacts.find(c => c.number === recipientNumber);
+  if (!contact) {
+    try { contact = await addOrResolveContact(recipientNumber); } catch(e) {}
+  }
+  if (!contact || !contact.sharedKey) return;
+
+  const encryptedPayload = await encryptPayload(signalPayload, contact.sharedKey);
+
+  if (realtimeChannel) {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'call-signal',
+      payload: { encryptedPayload, recipient: recipientNumber, sender: myNumber }
+    });
+  }
+
+  fetch('/api/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+    },
+    body: JSON.stringify({
+      sender_number: myNumber,
+      recipient_number: recipientNumber,
+      encrypted_payload: encryptedPayload
+    })
+  }).catch(() => {});
+}
+
+function updateMeshVideoGridUI() {
+  const container = document.querySelector('.video-viewport-container');
+  if (!container) return;
+
+  if (meshRemoteStreams.size === 0 && !activeGroup) return;
+
+  let grid = container.querySelector('.mesh-video-grid');
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.className = 'mesh-video-grid';
+    container.appendChild(grid);
+  } else {
+    grid.innerHTML = '';
+  }
+
+  // Hide single call elements if group call grid is active
+  const remoteVideo = document.getElementById('remote-video');
+  const localVideo = document.getElementById('local-video');
+  const fallbackAvatar = document.getElementById('audio-call-fallback-avatar');
+  if (remoteVideo) remoteVideo.classList.add('hidden');
+  if (localVideo) localVideo.classList.add('hidden');
+  if (fallbackAvatar) fallbackAvatar.classList.add('hidden');
+
+  // Add local video tile
+  if (localMediaStream) {
+    const tile = document.createElement('div');
+    tile.className = 'mesh-video-tile';
+    const v = document.createElement('video');
+    v.autoplay = true;
+    v.playsinline = true;
+    v.muted = true;
+    v.srcObject = localMediaStream;
+    const label = document.createElement('span');
+    label.className = 'mesh-video-label';
+    label.textContent = `Du (${currentUser.username})`;
+    tile.appendChild(v);
+    tile.appendChild(label);
+    grid.appendChild(tile);
+  }
+
+  // Add remote video tiles for mesh peers
+  meshRemoteStreams.forEach((stream, memberNumber) => {
+    const contact = contacts.find(c => c.number === memberNumber);
+    const displayName = contact ? (contact.nickname || contact.number) : memberNumber;
+
+    const tile = document.createElement('div');
+    tile.className = 'mesh-video-tile';
+    const v = document.createElement('video');
+    v.autoplay = true;
+    v.playsinline = true;
+    v.srcObject = stream;
+    const label = document.createElement('span');
+    label.className = 'mesh-video-label';
+    label.textContent = displayName;
+    tile.appendChild(v);
+    tile.appendChild(label);
+    grid.appendChild(tile);
+  });
+}
+
 function setupRTCPeerConnection() {
   if (peerConnection) {
     try { peerConnection.close(); } catch(e) {}
@@ -544,7 +742,11 @@ function setupRTCPeerConnection() {
       }
     }
 
-    localMediaStream.getTracks().forEach(track => {
+    const audioTrack = (isVoiceMaskActive && maskedAudioTrack) ? maskedAudioTrack : localMediaStream.getAudioTracks()[0];
+    if (audioTrack) {
+      peerConnection.addTrack(audioTrack, localMediaStream);
+    }
+    localMediaStream.getVideoTracks().forEach(track => {
       peerConnection.addTrack(track, localMediaStream);
     });
   }
@@ -715,7 +917,118 @@ function startActiveCallUI() {
   }, 1000);
 }
 
+function createVoiceMaskProcessedTrack(stream) {
+  try {
+    const rawAudioTrack = stream.getAudioTracks()[0];
+    if (!rawAudioTrack) return null;
+
+    if (!voiceMaskAudioCtx) {
+      voiceMaskAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (voiceMaskAudioCtx.state === 'suspended') {
+      voiceMaskAudioCtx.resume();
+    }
+
+    voiceMaskSourceNode = voiceMaskAudioCtx.createMediaStreamSource(new MediaStream([rawAudioTrack]));
+    voiceMaskDestinationNode = voiceMaskAudioCtx.createMediaStreamDestination();
+
+    // Voice Masking Filter Chain (Pitch Shift / Pitch modification via BiquadFilters + WaveShaper)
+    const lowShelf = voiceMaskAudioCtx.createBiquadFilter();
+    lowShelf.type = 'lowshelf';
+    lowShelf.frequency.value = 350;
+    lowShelf.gain.value = 14;
+
+    const highPass = voiceMaskAudioCtx.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 120;
+
+    const peaking = voiceMaskAudioCtx.createBiquadFilter();
+    peaking.type = 'peaking';
+    peaking.frequency.value = 800;
+    peaking.Q.value = 3.0;
+    peaking.gain.value = 10;
+
+    // Connect Web Audio processing nodes
+    voiceMaskSourceNode.connect(lowShelf);
+    lowShelf.connect(highPass);
+    highPass.connect(peaking);
+    peaking.connect(voiceMaskDestinationNode);
+
+    maskedAudioTrack = voiceMaskDestinationNode.stream.getAudioTracks()[0];
+    return maskedAudioTrack;
+  } catch (err) {
+    console.error("Voice masking creation error:", err);
+    return null;
+  }
+}
+
+async function toggleVoiceMasking(forcedState = null) {
+  const newState = forcedState !== null ? forcedState : !isVoiceMaskActive;
+  isVoiceMaskActive = newState;
+
+  const maskBtn = document.getElementById('toggle-voice-mask-btn');
+  const maskBadge = document.getElementById('voice-mask-status-badge');
+
+  if (maskBtn) {
+    maskBtn.classList.toggle('active', isVoiceMaskActive);
+  }
+  if (maskBadge) {
+    maskBadge.classList.toggle('active', isVoiceMaskActive);
+    maskBadge.textContent = isVoiceMaskActive ? '🎭 Voice Mask: AN' : '🎭 Voice Mask: AUS';
+  }
+
+  if (isVoiceMaskActive) {
+    showToast("🎭 Voice Masking AKTIVIERT (Stimmverfremdung)");
+  } else {
+    showToast("🎭 Voice Masking DEAKTIVIERT");
+  }
+
+  if (peerConnection && localMediaStream) {
+    const rawTrack = localMediaStream.getAudioTracks()[0];
+    if (!rawTrack) return;
+
+    if (isVoiceMaskActive && !maskedAudioTrack) {
+      createVoiceMaskProcessedTrack(localMediaStream);
+    }
+
+    const trackToUse = isVoiceMaskActive ? maskedAudioTrack : rawTrack;
+    if (trackToUse) {
+      const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+      if (sender) {
+        try {
+          await sender.replaceTrack(trackToUse);
+        } catch (e) {
+          console.error("Error replacing audio track for voice masking:", e);
+        }
+      }
+    }
+  }
+}
+
+function cleanupVoiceMasking() {
+  isVoiceMaskActive = false;
+  if (maskedAudioTrack) {
+    try { maskedAudioTrack.stop(); } catch(e) {}
+    maskedAudioTrack = null;
+  }
+  if (voiceMaskAudioCtx) {
+    try { voiceMaskAudioCtx.close(); } catch(e) {}
+    voiceMaskAudioCtx = null;
+  }
+  voiceMaskSourceNode = null;
+  voiceMaskDestinationNode = null;
+
+  const maskBtn = document.getElementById('toggle-voice-mask-btn');
+  const maskBadge = document.getElementById('voice-mask-status-badge');
+  if (maskBtn) maskBtn.classList.remove('active');
+  if (maskBadge) {
+    maskBadge.classList.remove('active');
+    maskBadge.textContent = '🎭 Voice Mask: AUS';
+  }
+}
+
 function cleanupCallState() {
+  cleanupVoiceMasking();
   stopRingtoneSound();
   if (callTimerInterval) {
     clearInterval(callTimerInterval);
@@ -736,10 +1049,33 @@ function cleanupCallState() {
     peerConnection = null;
   }
 
+  // Clean up mesh group call state
+  meshPeerConnections.forEach(pc => {
+    try { pc.close(); } catch(e) {}
+  });
+  meshPeerConnections.clear();
+
+  meshRemoteStreams.forEach(s => {
+    s.getTracks().forEach(track => track.stop());
+  });
+  meshRemoteStreams.clear();
+
+  const container = document.querySelector('.video-viewport-container');
+  if (container) {
+    const grid = container.querySelector('.mesh-video-grid');
+    if (grid) grid.remove();
+  }
+
   const remoteVideo = document.getElementById('remote-video');
   const localVideo = document.getElementById('local-video');
-  if (remoteVideo) remoteVideo.srcObject = null;
-  if (localVideo) localVideo.srcObject = null;
+  if (remoteVideo) {
+    remoteVideo.srcObject = null;
+    remoteVideo.classList.remove('hidden');
+  }
+  if (localVideo) {
+    localVideo.srcObject = null;
+    localVideo.classList.remove('hidden');
+  }
 
   activeCallPeerNumber = null;
   isCallInitiator = false;
@@ -1115,6 +1451,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   registerServiceWorker();
   await checkBackendHealth();
   await fetchPublicSettings();
+  initStealthMode();
   checkSessionState();
   setupEventListeners();
   setupTabBlurProtection();
@@ -1124,6 +1461,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     openAdminDashboard();
   }
 });
+
+function initStealthMode() {
+  const saved = localStorage.getItem('aegis_stealth_mode') || 'off';
+  applyStealthMode(saved, false);
+}
+
+function applyStealthMode(mode, showNotification = true) {
+  currentStealthMode = mode;
+  localStorage.setItem('aegis_stealth_mode', mode);
+
+  let iconLink = document.querySelector("link[rel~='icon']");
+  if (!iconLink) {
+    iconLink = document.createElement('link');
+    iconLink.rel = 'icon';
+    document.getElementsByTagName('head')[0].appendChild(iconLink);
+  }
+
+  if (mode === 'calculator') {
+    document.title = "Taschenrechner";
+    const calcSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2338bdf8"><rect x="4" y="2" width="16" height="20" rx="3" fill="%231e293b" stroke="%2338bdf8" stroke-width="2"/><rect x="7" y="5" width="10" height="4" rx="1" fill="%230f172a"/><circle cx="8" cy="12" r="1" fill="%2338bdf8"/><circle cx="12" cy="12" r="1" fill="%2338bdf8"/><circle cx="16" cy="12" r="1" fill="%2338bdf8"/><circle cx="8" cy="16" r="1" fill="%2338bdf8"/><circle cx="12" cy="16" r="1" fill="%2338bdf8"/><circle cx="16" cy="16" r="1" fill="%2338bdf8"/></svg>`;
+    iconLink.href = 'data:image/svg+xml,' + encodeURIComponent(calcSvg);
+    if (showNotification) showToast("🧮 Stealth-Modus AKTIVIERT (Taschenrechner)");
+  } else if (mode === 'notes') {
+    document.title = "Meine Notizen";
+    const notesSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23a855f7"><rect x="4" y="2" width="16" height="20" rx="3" fill="%231e293b" stroke="%23a855f7" stroke-width="2"/><line x1="8" y1="7" x2="16" y2="7" stroke="%23a855f7" stroke-width="2"/><line x1="8" y1="11" x2="16" y2="11" stroke="%23a855f7" stroke-width="2"/><line x1="8" y1="15" x2="12" y2="15" stroke="%23a855f7" stroke-width="2"/></svg>`;
+    iconLink.href = 'data:image/svg+xml,' + encodeURIComponent(notesSvg);
+    if (showNotification) showToast("📝 Stealth-Modus AKTIVIERT (Meine Notizen)");
+  } else {
+    document.title = "AegisChat Encrypted Messenger";
+    iconLink.href = "/favicon.svg";
+    if (showNotification) showToast("Stealth-Modus deaktiviert");
+  }
+
+  const stealthSelect = document.getElementById('stealth-mode-select');
+  if (stealthSelect) stealthSelect.value = mode;
+}
 
 async function hashPanicPassword(password) {
   const enc = new TextEncoder();
@@ -1364,6 +1737,12 @@ function setupEventListeners() {
   const pushToggle = document.getElementById('settings-push-toggle');
   if (pushToggle) pushToggle.addEventListener('change', handleTogglePushNotifications);
 
+  // Stealth Mode Select Listener
+  const stealthSelect = document.getElementById('stealth-mode-select');
+  if (stealthSelect) {
+    stealthSelect.addEventListener('change', (e) => applyStealthMode(e.target.value, true));
+  }
+
   // Settings Modal controls
   document.getElementById('open-settings-btn').addEventListener('click', () => {
     if (currentUser) {
@@ -1374,6 +1753,8 @@ function setupEventListeners() {
     }
     checkIosPwaNotice();
     checkPushSubscriptionState();
+    const stSel = document.getElementById('stealth-mode-select');
+    if (stSel) stSel.value = currentStealthMode;
     document.getElementById('settings-modal').classList.remove('hidden');
   });
   document.getElementById('close-settings-modal-btn').addEventListener('click', () => {
@@ -1414,6 +1795,17 @@ function setupEventListeners() {
   document.getElementById('save-nickname-btn').addEventListener('click', handleSaveNickname);
   document.getElementById('delete-contact-btn').addEventListener('click', handleDeleteContact);
 
+  // Group Room Controls
+  const createGroupModalBtn = document.getElementById('create-group-modal-btn');
+  const closeGroupModalBtn = document.getElementById('close-create-group-modal-btn');
+  const cancelGroupBtn = document.getElementById('cancel-create-group-btn');
+  const submitGroupBtn = document.getElementById('submit-create-group-btn');
+
+  if (createGroupModalBtn) createGroupModalBtn.addEventListener('click', openCreateGroupModal);
+  if (closeGroupModalBtn) closeGroupModalBtn.addEventListener('click', () => document.getElementById('create-group-modal').classList.add('hidden'));
+  if (cancelGroupBtn) cancelGroupBtn.addEventListener('click', () => document.getElementById('create-group-modal').classList.add('hidden'));
+  if (submitGroupBtn) submitGroupBtn.addEventListener('click', handleCreateGroup);
+
   // Messaging Form & Contact Addition
   document.getElementById('add-contact-btn').addEventListener('click', handleAddContact);
   document.getElementById('send-message-form').addEventListener('submit', handleSendMessage);
@@ -1448,10 +1840,15 @@ function setupEventListeners() {
   if (rejectIncomingCallBtn) rejectIncomingCallBtn.addEventListener('click', rejectIncomingCall);
   if (endCallBtn) endCallBtn.addEventListener('click', rejectIncomingCall);
 
-  // Call Audio / Camera Controls
+  // Call Audio / Camera / Voice Masking Controls
   const toggleMuteMicBtn = document.getElementById('toggle-mute-mic-btn');
   const toggleCamBtn = document.getElementById('toggle-camera-btn');
   const switchCamBtn = document.getElementById('switch-camera-btn');
+  const toggleVoiceMaskBtn = document.getElementById('toggle-voice-mask-btn');
+
+  if (toggleVoiceMaskBtn) {
+    toggleVoiceMaskBtn.addEventListener('click', () => toggleVoiceMasking());
+  }
 
   if (toggleMuteMicBtn) {
     toggleMuteMicBtn.addEventListener('click', () => {
@@ -1822,8 +2219,163 @@ async function initMainChatUI() {
   await fetchMyBurnerNumbers();
   updateSenderDropdown();
   await loadContactsFromSupabase();
+  loadGroupsFromStorage();
   connectRealtimeWebSocket();
   fetchAndProcessUnreadMessages();
+}
+
+// --- GROUP CHAT & P2P FULL MESH CALL LOGIC ---
+
+function loadGroupsFromStorage() {
+  if (!currentUser) return;
+  const stored = localStorage.getItem(`aegis_groups_${currentUser.id}`);
+  if (stored) {
+    try {
+      groups = JSON.parse(stored);
+    } catch (e) {
+      groups = [];
+    }
+  }
+  renderGroupsList();
+}
+
+function saveGroupsToStorage() {
+  if (!currentUser) return;
+  localStorage.setItem(`aegis_groups_${currentUser.id}`, JSON.stringify(groups));
+}
+
+function openCreateGroupModal() {
+  const checklist = document.getElementById('group-members-checklist');
+  checklist.innerHTML = '';
+
+  if (contacts.length === 0) {
+    checklist.innerHTML = '<p class="modal-subtext" style="text-align: center; padding: 12px;">Keine Kontakte vorhanden. Füge zuerst Kontakte hinzu.</p>';
+  } else {
+    contacts.forEach(c => {
+      const row = document.createElement('label');
+      row.className = 'group-member-checkbox-row';
+      const displayName = c.nickname ? `${c.nickname} (${c.number})` : c.number;
+      row.innerHTML = `
+        <input type="checkbox" value="${c.number}">
+        <span>${escapeHtml(displayName)}</span>
+      `;
+      checklist.appendChild(row);
+    });
+  }
+
+  document.getElementById('group-name-input').value = '';
+  document.getElementById('create-group-modal').classList.remove('hidden');
+}
+
+function handleCreateGroup() {
+  const nameInput = document.getElementById('group-name-input').value.trim();
+  if (!nameInput) {
+    showToast("Bitte einen Gruppennamen eingeben.", true);
+    return;
+  }
+
+  const selectedMembers = [];
+  document.querySelectorAll('#group-members-checklist input[type="checkbox"]:checked').forEach(cb => {
+    selectedMembers.push(cb.value);
+  });
+
+  if (selectedMembers.length === 0) {
+    showToast("Bitte mindestens ein Mitglied auswählen.", true);
+    return;
+  }
+
+  const groupId = 'grp-' + generate8DigitId();
+  const newGroup = {
+    id: groupId,
+    name: nameInput,
+    members: selectedMembers
+  };
+
+  groups.push(newGroup);
+  saveGroupsToStorage();
+  renderGroupsList();
+  selectGroup(newGroup);
+
+  document.getElementById('create-group-modal').classList.add('hidden');
+  showToast(`E2EE Gruppenraum "${nameInput}" erstellt!`);
+}
+
+function renderGroupsList() {
+  const list = document.getElementById('groups-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (groups.length === 0) {
+    list.innerHTML = '<li style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px;">Keine Gruppenräume.</li>';
+    return;
+  }
+
+  groups.forEach(g => {
+    const li = document.createElement('li');
+    li.className = `contact-item ${activeGroup && activeGroup.id === g.id ? 'active' : ''}`;
+    const displayName = escapeHtml(g.name);
+
+    li.innerHTML = `
+      <div class="avatar" style="background: linear-gradient(135deg, var(--accent-pink), var(--accent));">👥</div>
+      <div class="contact-details">
+        <span class="contact-name">${displayName}</span>
+        <span class="contact-id">${g.members.length + 1} Mitglieder</span>
+      </div>
+      <span class="contact-type-tag" style="background: rgba(236, 72, 153, 0.15); color: var(--accent-pink);">E2EE Mesh</span>
+    `;
+    li.addEventListener('click', () => selectGroup(g));
+    list.appendChild(li);
+  });
+}
+
+function selectGroup(group) {
+  activeContact = null;
+  activeGroup = group;
+
+  renderContacts();
+  renderGroupsList();
+
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('chat-header').classList.remove('hidden');
+  document.getElementById('messages-container').classList.remove('hidden');
+  document.getElementById('send-message-form').classList.remove('hidden');
+
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.add('mobile-hidden');
+  }
+
+  document.getElementById('active-avatar').textContent = '👥';
+  document.getElementById('active-contact-name').textContent = `Gruppe: ${group.name}`;
+
+  loadAndRenderGroupHistory(group.id);
+}
+
+function loadAndRenderGroupHistory(groupId) {
+  const container = document.getElementById('messages-container');
+  container.innerHTML = '';
+  const stored = sessionStorage.getItem(`aegis_group_chat_${groupId}`);
+  if (!stored) return;
+
+  try {
+    const history = JSON.parse(stored);
+    const now = Date.now();
+    history.forEach(msg => {
+      if (msg.expiresAt && msg.expiresAt <= now) return;
+      appendMessageUI(msg, false);
+    });
+    container.scrollTop = container.scrollHeight;
+  } catch (e) {}
+}
+
+function saveGroupChatMessage(groupId, msgObj) {
+  const key = `aegis_group_chat_${groupId}`;
+  const stored = sessionStorage.getItem(key);
+  let history = [];
+  if (stored) {
+    try { history = JSON.parse(stored); } catch (e) {}
+  }
+  history.push(msgObj);
+  sessionStorage.setItem(key, JSON.stringify(history));
 }
 
 function updateSenderDropdown() {
@@ -2424,7 +2976,9 @@ async function handleDeleteContact() {
 
 function selectContact(contact) {
   activeContact = contact;
+  activeGroup = null;
   renderContacts();
+  renderGroupsList();
 
   document.getElementById('empty-state').classList.add('hidden');
   document.getElementById('chat-header').classList.remove('hidden');
@@ -2441,6 +2995,65 @@ function selectContact(contact) {
 
   showSavePromptBar(contact.number);
   loadAndRenderChatHistory(contact.number);
+}
+
+async function handleSendGroupMessage(text) {
+  if (!activeGroup || !text) return;
+  const senderNumber = document.getElementById('send-as-select').value || currentUser.main_number;
+
+  const groupPayload = JSON.stringify({
+    type: 'group_chat',
+    groupId: activeGroup.id,
+    groupName: activeGroup.name,
+    text: text,
+    sender: senderNumber
+  });
+
+  // Multi-recipient E2EE payload encryption and dispatch to all members
+  for (const memberNumber of activeGroup.members) {
+    let memberContact = contacts.find(c => c.number === memberNumber);
+    if (!memberContact) {
+      try {
+        memberContact = await addOrResolveContact(memberNumber);
+      } catch (e) {
+        continue;
+      }
+    }
+
+    if (memberContact && memberContact.sharedKey) {
+      try {
+        const encryptedPayloadStr = await encryptPayload(groupPayload, memberContact.sharedKey);
+
+        await fetch('/api/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+          },
+          body: JSON.stringify({
+            sender_number: senderNumber,
+            recipient_number: memberNumber,
+            encrypted_payload: encryptedPayloadStr
+          })
+        });
+      } catch (e) {
+        console.error(`Error sending group message to ${memberNumber}:`, e);
+      }
+    }
+  }
+
+  const msgObj = {
+    id: generate8DigitId(),
+    sender_number: senderNumber,
+    recipient_number: activeGroup.id,
+    text: text,
+    type: 'own',
+    timestamp: Date.now()
+  };
+
+  appendMessageUI(msgObj, true);
+  saveGroupChatMessage(activeGroup.id, msgObj);
+  playSoundFeedback('send');
 }
 
 // --- UNREAD TEMPORARY MESSAGES ---
@@ -2705,7 +3318,13 @@ async function handleSendMessage(e) {
   e.preventDefault();
   const input = document.getElementById('message-input');
   const text = input.value.trim();
-  if ((!text && !selectedFile) || !activeContact) return;
+  if ((!text && !selectedFile) || (!activeContact && !activeGroup)) return;
+
+  if (activeGroup) {
+    await handleSendGroupMessage(text);
+    input.value = '';
+    return;
+  }
 
   const progressContainer = document.getElementById('upload-progress-container');
   const progressBar = document.getElementById('upload-progress-bar');
@@ -3132,6 +3751,29 @@ async function handleIncomingMessage(record) {
         const parsed = JSON.parse(decryptedText);
         if (parsed && parsed.type === 'call-signal') {
           await handleIncomingCallSignal(parsed);
+          if (record.id) {
+            fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
+          }
+          return;
+        } else if (parsed && parsed.type === 'group_chat' && parsed.groupId) {
+          const groupMsgObj = {
+            id: record.id || generate8DigitId(),
+            sender_number: senderNumber,
+            recipient_number: parsed.groupId,
+            text: parsed.text,
+            type: 'other',
+            timestamp: record.created_at ? new Date(record.created_at).getTime() : Date.now()
+          };
+
+          saveGroupChatMessage(parsed.groupId, groupMsgObj);
+          playSoundFeedback('receive');
+
+          if (activeGroup && activeGroup.id === parsed.groupId) {
+            appendMessageUI(groupMsgObj, true);
+          } else {
+            showToast(`Neue E2EE Gruppennachricht in ${parsed.groupName || 'Gruppe'}!`);
+          }
+
           if (record.id) {
             fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
           }
