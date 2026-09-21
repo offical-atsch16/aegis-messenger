@@ -1,5 +1,296 @@
 // Cloudflare Pages Worker (`_worker.js`)
-// AegisChat Secured Proxy to Supabase with Admin & Invite System
+// AegisChat Secured Proxy to Supabase with Admin, Invite System & Web Push Notifications
+
+// Base64URL Helpers
+function base64UrlToUint8Array(base64UrlString) {
+  const padding = '='.repeat((4 - base64UrlString.length % 4) % 4);
+  const base64 = (base64UrlString + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function uint8ArrayToBase64Url(uint8Array) {
+  let binary = '';
+  for (let i = 0; i < uint8Array.length; i++) {
+    binary += String.fromCharCode(uint8Array[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// VAPID & HKDF Cryptographic Helpers for Web Push (RFC 8291 / RFC 8292)
+async function getVapidPrivateKey(privateKeyB64Url, publicKeyB64Url) {
+  if (privateKeyB64Url.startsWith('{')) {
+    const jwk = JSON.parse(privateKeyB64Url);
+    return await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign']
+    );
+  }
+
+  const dBytes = base64UrlToUint8Array(privateKeyB64Url);
+  if (dBytes.length === 32) {
+    let pubJwk = {};
+    if (publicKeyB64Url) {
+      const pubBytes = base64UrlToUint8Array(publicKeyB64Url);
+      if (pubBytes.length === 65 && pubBytes[0] === 0x04) {
+        pubJwk = {
+          x: uint8ArrayToBase64Url(pubBytes.subarray(1, 33)),
+          y: uint8ArrayToBase64Url(pubBytes.subarray(33, 65))
+        };
+      }
+    }
+    const jwk = {
+      kty: 'EC',
+      crv: 'P-256',
+      d: uint8ArrayToBase64Url(dBytes),
+      ...pubJwk
+    };
+    return await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign']
+    );
+  }
+
+  return await crypto.subtle.importKey(
+    'pkcs8',
+    dBytes.buffer,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign']
+  );
+}
+
+async function createVapidJwt(audience, subject, privateKeyB64Url, publicKeyB64Url) {
+  const header = { alg: 'ES256', typ: 'JWT' };
+  const exp = Math.floor(Date.now() / 1000) + 12 * 3600; // 12h
+  const payload = {
+    aud: audience,
+    exp: exp,
+    sub: subject || 'mailto:admin@aegischat.internal'
+  };
+
+  const enc = new TextEncoder();
+  const headerB64 = uint8ArrayToBase64Url(enc.encode(JSON.stringify(header)));
+  const payloadB64 = uint8ArrayToBase64Url(enc.encode(JSON.stringify(payload)));
+  const unsignedToken = `${headerB64}.${payloadB64}`;
+
+  const cryptoKey = await getVapidPrivateKey(privateKeyB64Url, publicKeyB64Url);
+  const signatureBuffer = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: { name: 'SHA-256' } },
+    cryptoKey,
+    enc.encode(unsignedToken)
+  );
+
+  const signatureB64 = uint8ArrayToBase64Url(new Uint8Array(signatureBuffer));
+  return `${unsignedToken}.${signatureB64}`;
+}
+
+async function hkdfExtract(salt, ikm) {
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    salt.byteLength > 0 ? salt : new Uint8Array(32),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, ikm));
+}
+
+async function hkdfExpand(prk, info, length) {
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    prk,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const infoWithCounter = new Uint8Array(info.byteLength + 1);
+  infoWithCounter.set(info, 0);
+  infoWithCounter[info.byteLength] = 1;
+  const result = await crypto.subtle.sign('HMAC', hmacKey, infoWithCounter);
+  return new Uint8Array(result).subarray(0, length);
+}
+
+async function encryptWebPushPayload(subscriptionKeys, payloadText) {
+  if (!subscriptionKeys || !subscriptionKeys.p256dh || !subscriptionKeys.auth) {
+    return null;
+  }
+
+  const userPubKeyBytes = base64UrlToUint8Array(subscriptionKeys.p256dh);
+  const userAuthBytes = base64UrlToUint8Array(subscriptionKeys.auth);
+
+  const localKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits']
+  );
+
+  const localPubKeyBuffer = await crypto.subtle.exportKey('raw', localKeyPair.publicKey);
+  const localPubKeyBytes = new Uint8Array(localPubKeyBuffer);
+
+  const userPubKey = await crypto.subtle.importKey(
+    'raw',
+    userPubKeyBytes,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  const sharedSecretBits = await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: userPubKey },
+    localKeyPair.privateKey,
+    256
+  );
+  const sharedSecret = new Uint8Array(sharedSecretBits);
+
+  const prkKey = await hkdfExtract(userAuthBytes, sharedSecret);
+
+  const enc = new TextEncoder();
+  const webPushInfoLabel = enc.encode("WebPush: info\0");
+  const infoKey = new Uint8Array(webPushInfoLabel.length + userPubKeyBytes.length + localPubKeyBytes.length);
+  infoKey.set(webPushInfoLabel, 0);
+  infoKey.set(userPubKeyBytes, webPushInfoLabel.length);
+  infoKey.set(localPubKeyBytes, webPushInfoLabel.length + userPubKeyBytes.length);
+
+  const ikm = await hkdfExpand(prkKey, infoKey, 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const prk = await hkdfExtract(salt, ikm);
+
+  const cek = await hkdfExpand(prk, enc.encode("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdfExpand(prk, enc.encode("Content-Encoding: nonce\0"), 12);
+
+  const payloadBytes = enc.encode(payloadText);
+  const paddedPayload = new Uint8Array(payloadBytes.length + 1);
+  paddedPayload.set(payloadBytes, 0);
+  paddedPayload[payloadBytes.length] = 0x02;
+
+  const aesKey = await crypto.subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['encrypt']);
+  const ciphertextBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    aesKey,
+    paddedPayload
+  );
+
+  const header = new Uint8Array(16 + 4 + 1 + 65);
+  header.set(salt, 0);
+  header[16] = 0x00;
+  header[17] = 0x00;
+  header[18] = 0x10;
+  header[19] = 0x00;
+  header[20] = 0x41;
+  header.set(localPubKeyBytes, 21);
+
+  const encryptedBody = new Uint8Array(header.length + ciphertextBuffer.byteLength);
+  encryptedBody.set(header, 0);
+  encryptedBody.set(new Uint8Array(ciphertextBuffer), header.length);
+
+  return encryptedBody;
+}
+
+// Send Push Notification Helper
+async function sendPushNotification(env, userId, payloadObj, cleanBaseUrl) {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !userId) return;
+
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
+  const headers = {
+    'apikey': serviceRoleKey,
+    'Authorization': `Bearer ${serviceRoleKey}`
+  };
+
+  try {
+    const subRes = await fetch(`${cleanBaseUrl}/rest/v1/push_subscriptions?user_id=eq.${userId}&select=*`, {
+      headers
+    });
+    if (!subRes.ok) return;
+
+    const subs = await subRes.json();
+    if (!Array.isArray(subs) || subs.length === 0) return;
+
+    for (const subRecord of subs) {
+      const sub = subRecord.subscription;
+      if (!sub || !sub.endpoint) continue;
+
+      try {
+        const endpointUrl = new URL(sub.endpoint);
+        const audience = endpointUrl.origin;
+        const jwt = await createVapidJwt(
+          audience,
+          env.VAPID_SUBJECT,
+          env.VAPID_PRIVATE_KEY,
+          env.VAPID_PUBLIC_KEY
+        );
+
+        const pushHeaders = {
+          'Authorization': `vapid t=${jwt}, k=${env.VAPID_PUBLIC_KEY}`,
+          'TTL': '86400',
+          'Urgency': payloadObj.type === 'call' ? 'high' : 'normal'
+        };
+
+        let bodyData = null;
+        if (sub.keys) {
+          bodyData = await encryptWebPushPayload(sub.keys, JSON.stringify(payloadObj));
+          if (bodyData) {
+            pushHeaders['Content-Type'] = 'application/octet-stream';
+            pushHeaders['Content-Encoding'] = 'aes128gcm';
+          }
+        }
+
+        const pushRes = await fetch(sub.endpoint, {
+          method: 'POST',
+          headers: pushHeaders,
+          body: bodyData
+        });
+
+        // Delete stale or expired subscriptions
+        if (pushRes.status === 404 || pushRes.status === 410) {
+          await fetch(`${cleanBaseUrl}/rest/v1/push_subscriptions?user_id=eq.${userId}`, {
+            method: 'DELETE',
+            headers
+          });
+        }
+      } catch (err) {
+        console.error("Push delivery error for endpoint:", err);
+      }
+    }
+  } catch (err) {
+    console.error("sendPushNotification error:", err);
+  }
+}
+
+// Resolve user_id from 8-digit main number or burner number
+async function resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, number) {
+  if (!number) return null;
+  const headers = {
+    'apikey': serviceRoleKey,
+    'Authorization': `Bearer ${serviceRoleKey}`
+  };
+
+  try {
+    const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${number}&select=id`, { headers });
+    if (profRes.ok) {
+      const profData = await profRes.json();
+      if (Array.isArray(profData) && profData.length > 0) return profData[0].id;
+    }
+
+    const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&select=user_id`, { headers });
+    if (burnerRes.ok) {
+      const burnerData = await burnerRes.json();
+      if (Array.isArray(burnerData) && burnerData.length > 0) return burnerData[0].user_id;
+    }
+  } catch (e) {}
+
+  return null;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -175,7 +466,8 @@ export default {
         return new Response(JSON.stringify({
           require_invite_code,
           banner_config,
-          maintenance_mode
+          maintenance_mode,
+          vapidPublicKey: env.VAPID_PUBLIC_KEY || null
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -209,7 +501,51 @@ export default {
         return new Response(JSON.stringify({ valid: true, message: 'Einladungscode erfolgreich verifiziert!' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 5. ADMIN SETTINGS (/api/admin/settings)
+      // 5. PUSH SUBSCRIBE ENDPOINT (/api/push/subscribe)
+      if (url.pathname === '/api/push/subscribe') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const authUser = await verifyUserToken(token);
+
+        if (!token || !authUser) {
+          return new Response(JSON.stringify({ error: 'Nicht autorisiert. Gültiges Token erforderlich.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json();
+          const subscription = body.subscription || body;
+
+          if (!subscription || !subscription.endpoint) {
+            return new Response(JSON.stringify({ error: 'Ungültige Subscription-Daten.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          const upsertRes = await fetch(`${cleanBaseUrl}/rest/v1/push_subscriptions`, {
+            method: 'POST',
+            headers: {
+              ...getSupabaseHeaders(token),
+              'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify({
+              user_id: authUser.id,
+              subscription: subscription,
+              updated_at: new Date().toISOString()
+            })
+          });
+
+          const resData = await upsertRes.json();
+          return new Response(JSON.stringify(resData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'DELETE') {
+          const delRes = await fetch(`${cleanBaseUrl}/rest/v1/push_subscriptions?user_id=eq.${authUser.id}`, {
+            method: 'DELETE',
+            headers: getSupabaseHeaders(token)
+          });
+          return new Response(null, { status: delRes.status });
+        }
+      }
+
+      // 6. ADMIN SETTINGS (/api/admin/settings)
       if (url.pathname === '/api/admin/settings') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -249,7 +585,7 @@ export default {
         }
       }
 
-      // 6. ADMIN INVITES MANAGEMENT (/api/admin/invites)
+      // 7. ADMIN INVITES MANAGEMENT (/api/admin/invites)
       if (url.pathname === '/api/admin/invites') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -309,7 +645,7 @@ export default {
         }
       }
 
-      // 7. ADMIN STATS ENDPOINT (/api/admin/stats)
+      // 8. ADMIN STATS ENDPOINT (/api/admin/stats)
       if (url.pathname === '/api/admin/stats' && request.method === 'GET') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -365,7 +701,7 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 8. ADMIN USER MANAGEMENT (/api/admin/users)
+      // 9. ADMIN USER MANAGEMENT (/api/admin/users)
       if (url.pathname === '/api/admin/users' && request.method === 'GET') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -382,7 +718,7 @@ export default {
         return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 9. ADMIN ACCOUNT FREEZE TOGGLE (/api/admin/users/toggle-freeze)
+      // 10. ADMIN ACCOUNT FREEZE TOGGLE (/api/admin/users/toggle-freeze)
       if (url.pathname === '/api/admin/users/toggle-freeze' && request.method === 'POST') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -412,7 +748,7 @@ export default {
         return new Response(JSON.stringify(updateData), { status: updateRes.status, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 10. AUTH REGISTER (/api/auth/register)
+      // 11. AUTH REGISTER (/api/auth/register)
       if (url.pathname === '/api/auth/register' && request.method === 'POST') {
         const body = await request.json();
         const { username, password, main_number, encrypted_private_key, public_key, invite_code } = body;
@@ -629,7 +965,7 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 11. AUTH LOGIN (/api/auth/login)
+      // 12. AUTH LOGIN (/api/auth/login)
       if (url.pathname === '/api/auth/login' && request.method === 'POST') {
         const body = await request.json();
         const { identifier, password } = body;
@@ -720,7 +1056,7 @@ export default {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 12. ACCOUNT DEACTIVATION (/api/auth/deactivate)
+      // 13. ACCOUNT DEACTIVATION (/api/auth/deactivate)
       if (url.pathname === '/api/auth/deactivate' && request.method === 'POST') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -753,7 +1089,7 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto erfolgreich deaktiviert.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 13. PERMANENT ACCOUNT DELETION ("Self-Destruct") (/api/auth/delete-account)
+      // 14. PERMANENT ACCOUNT DELETION ("Self-Destruct") (/api/auth/delete-account)
       if (url.pathname === '/api/auth/delete-account' && (request.method === 'POST' || request.method === 'DELETE')) {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -772,7 +1108,7 @@ export default {
 
         const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
 
-        // Delete profile (cascades disposable_numbers, user_contacts)
+        // Delete profile (cascades disposable_numbers, user_contacts, push_subscriptions)
         const delProfRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${user_id}`, {
           method: 'DELETE',
           headers: getSupabaseHeaders(token || serviceRoleKey)
@@ -796,7 +1132,7 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto unwiderruflich gelöscht.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 14. RESOLVE PUBLIC KEY (/api/profiles/resolve)
+      // 15. RESOLVE PUBLIC KEY (/api/profiles/resolve)
       if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
         const number = url.searchParams.get('number');
         if (!number) {
@@ -844,7 +1180,7 @@ export default {
         return new Response(JSON.stringify({ error: 'Nummer nicht gefunden oder inaktiv.' }), { status: 404 });
       }
 
-      // 15. CONTACTS MANAGEMENT (/api/contacts)
+      // 16. CONTACTS MANAGEMENT (/api/contacts)
       if (url.pathname === '/api/contacts') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -877,6 +1213,18 @@ export default {
             })
           });
           const resData = await upsertRes.json();
+
+          if (upsertRes.ok && contact_number) {
+            const targetUserId = await resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, contact_number);
+            if (targetUserId) {
+              ctx.waitUntil(sendPushNotification(env, targetUserId, {
+                title: "AegisChat",
+                body: "Neuer Kontakt hat sich verbunden",
+                type: "contact"
+              }, cleanBaseUrl));
+            }
+          }
+
           return new Response(JSON.stringify(resData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
         }
 
@@ -892,7 +1240,7 @@ export default {
         }
       }
 
-      // 16. BURNER NUMBERS MANAGEMENT (/api/burners)
+      // 17. BURNER NUMBERS MANAGEMENT (/api/burners)
       if (url.pathname === '/api/burners') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -930,7 +1278,7 @@ export default {
         }
       }
 
-      // 17. MESSAGES ENDPOINT (/api/messages)
+      // 18. MESSAGES ENDPOINT (/api/messages)
       if (url.pathname === '/api/messages') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -958,6 +1306,19 @@ export default {
             body: JSON.stringify(body)
           });
           const resData = await insertRes.json();
+
+          if (insertRes.ok && body.recipient_number) {
+            const recipientUserId = await resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, body.recipient_number);
+            if (recipientUserId) {
+              const isCallMsg = body.type === 'call' || body.message_type === 'call' || body.is_call;
+              const pushPayload = isCallMsg
+                ? { title: "AegisChat Call", body: "Eingehender verschlüsselter Anruf...", type: "call" }
+                : { title: "AegisChat", body: "Neue verschlüsselte Nachricht erhalten", type: "message" };
+
+              ctx.waitUntil(sendPushNotification(env, recipientUserId, pushPayload, cleanBaseUrl));
+            }
+          }
+
           return new Response(JSON.stringify(resData), { status: insertRes.status, headers: { 'Content-Type': 'application/json' } });
         }
 
@@ -982,7 +1343,7 @@ export default {
         }
       }
 
-      // 11. UPLOAD FILE ENDPOINT (/api/upload)
+      // 19. UPLOAD FILE ENDPOINT (/api/upload)
       if (url.pathname === '/api/upload' && request.method === 'POST') {
         const authHeader = request.headers.get('Authorization');
         const token = authHeader ? authHeader.replace('Bearer ', '') : null;
@@ -1020,7 +1381,7 @@ export default {
         });
       }
 
-      // 12. BURN FILE ENDPOINT (/api/files/burn) - Irrevocable deletion from Storage
+      // 20. BURN FILE ENDPOINT (/api/files/burn) - Irrevocable deletion from Storage
       if (url.pathname === '/api/files/burn' && request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
         const fileId = body.file_id || body.file_path;
@@ -1052,7 +1413,7 @@ export default {
         });
       }
 
-      // 13. GET ENCRYPTED FILE ENDPOINT (/api/files/*)
+      // 21. GET ENCRYPTED FILE ENDPOINT (/api/files/*)
       if (url.pathname.startsWith('/api/files/') && request.method === 'GET') {
         const fileId = url.pathname.replace('/api/files/', '');
         if (!fileId) {

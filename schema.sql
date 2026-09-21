@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS public.invite_codes (
 );
 
 
+-- 7. PUSH SUBSCRIPTIONS TABLE
+-- Stores Web-Push subscription JSON objects per user
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subscription JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON public.push_subscriptions(user_id);
+
+
 -- =========================================================
 -- ROW LEVEL SECURITY (RLS) & POLICIES
 -- =========================================================
@@ -103,6 +114,7 @@ ALTER TABLE public.user_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invite_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES POLICIES
 CREATE POLICY "Profiles viewable by anyone"
@@ -180,6 +192,12 @@ CREATE POLICY "Admins can manage invite codes"
       WHERE profiles.id = auth.uid() AND profiles.is_admin = true
     )
   );
+
+
+-- PUSH SUBSCRIPTIONS POLICIES
+CREATE POLICY "Users can manage push subscriptions"
+  ON public.push_subscriptions FOR ALL
+  USING (true);
 
 
 -- =========================================================
