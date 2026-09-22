@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   share_profile BOOLEAN DEFAULT TRUE NOT NULL,
   is_disabled BOOLEAN DEFAULT FALSE NOT NULL,
   is_admin BOOLEAN DEFAULT FALSE NOT NULL,
+  role TEXT DEFAULT 'user' NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS share_profile BOOLEAN DEFAULT TRUE NOT NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user' NOT NULL;
 
 -- Indices for searching profiles by main_number or username
 CREATE INDEX IF NOT EXISTS idx_profiles_main_number ON public.profiles(main_number);
@@ -232,6 +234,9 @@ CREATE POLICY "Users can manage push subscriptions"
 -- =========================================================
 -- SUPABASE REALTIME CONFIGURATION
 -- =========================================================
+
+-- Enable Full Replica Identity for Realtime CDC
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
 
 -- Enable Realtime for messages, disposable_numbers, and support_tickets tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;

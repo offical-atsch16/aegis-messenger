@@ -30,6 +30,9 @@ let supabaseAnonKey = null;
 let supabaseClient = null;
 let realtimeChannel = null;
 
+// Track processed message IDs to prevent duplicate handling from WebSocket & REST
+const processedMsgIds = new Set();
+
 // Public System Settings & Invite State
 let publicRequireInviteCode = false;
 let verifiedInviteCode = null;
@@ -1566,11 +1569,17 @@ async function hashPanicPassword(password) {
 function setupTabBlurProtection() {
   const toggleOverlay = (isBlurred) => {
     const overlay = document.getElementById('tab-blur-overlay');
-    if (!overlay) return;
+    if (overlay) {
+      if (currentUser && isBlurred) {
+        overlay.classList.remove('hidden');
+      } else {
+        overlay.classList.add('hidden');
+      }
+    }
+
+    // Trigger Passcode/App Lock screen on leaving app/losing focus
     if (currentUser && isBlurred) {
-      overlay.classList.remove('hidden');
-    } else {
-      overlay.classList.add('hidden');
+      lockSession();
     }
   };
 
@@ -1579,8 +1588,6 @@ function setupTabBlurProtection() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       toggleOverlay(true);
-    } else {
-      toggleOverlay(false);
     }
   });
 }
@@ -3301,7 +3308,7 @@ function selectContact(contact) {
     document.getElementById('sidebar').classList.add('mobile-hidden');
   }
 
-  const isSupportChat = contact.number === '000000' || contact.number === '00000000';
+  const isSupportChat = contact.number === '00000000';
   const supportBanner = document.getElementById('support-disclaimer-banner');
   if (supportBanner) {
     if (isSupportChat) {
@@ -3311,7 +3318,7 @@ function selectContact(contact) {
     }
   }
 
-  const displayName = isSupportChat ? 'Offizieller Support (000000)' : (contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`);
+  const displayName = isSupportChat ? 'Offizieller Support (00000000)' : (contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`);
   const founderBadge = getFounderBadgeHtml(contact.username || contact.nickname || '');
   const supportBadge = isSupportChat ? '<span class="badge-supporter">🛡️ Support</span>' : '';
 
@@ -4161,6 +4168,9 @@ function getMyAllNumbers() {
 
 async function handleIncomingMessage(record) {
   if (!record || !record.recipient_number) return;
+  if (record.id && processedMsgIds.has(record.id)) return;
+  if (record.id) processedMsgIds.add(record.id);
+
   const myNumbers = getMyAllNumbers();
 
   if (myNumbers.includes(record.recipient_number)) {
@@ -4249,9 +4259,13 @@ function connectRealtimeWebSocket() {
 
   if (window.supabase && supabaseUrl && supabaseAnonKey) {
     try {
-      if (!supabaseClient) {
-        supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+      const clientOptions = {};
+      if (accessToken) {
+        clientOptions.global = {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        };
       }
+      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey, clientOptions);
 
       realtimeChannel = supabaseClient
         .channel('schema-db-changes')

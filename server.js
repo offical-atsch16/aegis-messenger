@@ -22,15 +22,40 @@ const server = http.createServer((req, res) => {
       }));
       return;
     }
-    if (req.url.startsWith('/api/auth/register') || req.url.startsWith('/api/auth/login')) {
+    if (req.url.startsWith('/api/auth/register')) {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body || '{}');
+          if (parsed.username && ['admin', 'support', 'system'].includes(parsed.username.toLowerCase())) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Dieser Profilname ist reserviert oder enthält ungültige Zeichen.' }));
+            return;
+          }
+        } catch (e) {}
+        const mockPrivKey = JSON.stringify({
+          salt: "1234567812345678",
+          iv: "123456781234",
+          ciphertext: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE"
+        });
+        res.end(JSON.stringify({
+          user: { id: "00000000-0000-0000-0000-000000000000", username: "user123", main_number: "88888888" },
+          profile: { username: "user123", main_number: "88888888", display_name: "User 123", encrypted_private_key: mockPrivKey, public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE", is_admin: false, share_profile: true },
+          access_token: "mock_token"
+        }));
+      });
+      return;
+    }
+    if (req.url.startsWith('/api/auth/login')) {
       const mockPrivKey = JSON.stringify({
-        salt: "1234567812345678",
-        iv: "123456781234",
-        ciphertext: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE"
+        encryptedJwkB64: "eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6InhYWFgiLCJ5IjoieVlZWSIHeading==",
+        saltB64: "TVRJeE1UVXpORFVtTkRneE1USTE=",
+        ivB64: "TVRJeE1UVXpORFVt"
       });
       res.end(JSON.stringify({
         user: { id: "00000000-0000-0000-0000-000000000000", username: "arien", main_number: "88888888" },
-        profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: mockPrivKey, public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE", is_admin: true, share_profile: true },
+        profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: mockPrivKey, public_key: "eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6ImFiYyIsInkiOiJkZWYifQ==", is_admin: true, share_profile: true },
         access_token: "mock_token"
       }));
       return;

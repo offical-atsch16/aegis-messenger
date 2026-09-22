@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>So funktioniert AegisChat • Interactive Guide</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    .info-container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 32px;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+    .info-card {
+      padding: 24px;
+      border-radius: 16px;
+      background: var(--bg-glass-card);
+      border: 1px solid var(--border-glass);
+    }
+    .info-card h3 {
+      font-size: 18px;
+      color: var(--accent-cyan);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-background">
+    <div class="glow-sphere glow-1"></div>
+    <div class="glow-sphere glow-2"></div>
+    <div class="glow-sphere glow-3"></div>
+  </div>
+
+  <div class="info-container">
+    <a href="/" class="back-link">← Zurück zu AegisChat</a>
+
+    <div class="glass-card" style="padding: 32px; text-align: center;">
+      <h1 style="font-size: 32px; font-weight: 800; color: var(--text-bright); margin-bottom: 12px;">So funktioniert AegisChat</h1>
+      <p style="color: var(--text-secondary); max-width: 600px; margin: 0 auto;">Maximale Privatsphäre durch Ende-zu-Ende-Verschlüsselung, automatischen 23:59 Uhr Wipe, Stimmverfremdung und anonyme Burner-IDs.</p>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-card glass-card">
+        <h3>🔐 Zero-Knowledge E2EE</h3>
+        <p style="color: var(--text-secondary); font-size: 14px;">Alle Nachrichten und Dateien werden mit WebCrypto API (ECDH P-256 + AES-GCM-256) direkt im Browser verschlüsselt. Der Server liest ausschließlich Geheimtext.</p>
+      </div>
+
+      <div class="info-card glass-card">
+        <h3>🧹 23:59 Uhr Server-Reset</h3>
+        <p style="color: var(--text-secondary); font-size: 14px;">Pünktlich um 23:59 Uhr (Europe/Berlin) bereinigt das System ausnahmslos alle ausgetauschten Nachrichten und Uploads serverseitig unwiderruflich.</p>
+      </div>
+
+      <div class="info-card glass-card">
+        <h3>🎭 Voice Masking</h3>
+        <p style="color: var(--text-secondary); font-size: 14px;">Web Audio API BiquadFilter Chains erlauben Live-Stimmverfremdung bei verschlüsselten P2P WebRTC Anrufen direkt im Browser.</p>
+      </div>
+
+      <div class="info-card glass-card">
+        <h3>🧮 Stealth-Identitäten</h3>
+        <p style="color: var(--text-secondary); font-size: 14px;">Aktiviere den Stealth-Modus, um Seitentitel und Favicon im Handumdrehen z. B. als Taschenrechner oder Notiz-App zu tarnen.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
