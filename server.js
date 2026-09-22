@@ -8,6 +8,52 @@ const PORT = process.env.PORT || 8080;
 
 // HTTP Server serving static files (index.html, style.css, app.js)
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/api/')) {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*'
+    });
+    if (req.url.startsWith('/api/settings/public')) {
+      res.end(JSON.stringify({
+        require_invite_code: false,
+        banner_config: { enabled: false },
+        maintenance_mode: { enabled: false }
+      }));
+      return;
+    }
+    if (req.url.startsWith('/api/auth/register') || req.url.startsWith('/api/auth/login')) {
+      const mockPrivKey = JSON.stringify({
+        salt: "1234567812345678",
+        iv: "123456781234",
+        ciphertext: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE"
+      });
+      res.end(JSON.stringify({
+        user: { id: "00000000-0000-0000-0000-000000000000", username: "arien", main_number: "88888888" },
+        profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: mockPrivKey, public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE", is_admin: true, share_profile: true },
+        access_token: "mock_token"
+      }));
+      return;
+    }
+    if (req.url.startsWith('/api/profiles/resolve')) {
+      res.end(JSON.stringify({
+        number: "88888888",
+        username: "arien",
+        public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE",
+        display_name: "Arien Founder",
+        share_profile: true,
+        isBurner: false
+      }));
+      return;
+    }
+    if (req.url.startsWith('/api/contacts') || req.url.startsWith('/api/burners') || req.url.startsWith('/api/messages')) {
+      res.end(JSON.stringify([]));
+      return;
+    }
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   let filePath = '.' + req.url;
   if (filePath === './') {
     filePath = './index.html';

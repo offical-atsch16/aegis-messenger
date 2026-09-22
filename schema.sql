@@ -8,7 +8,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. PROFILES TABLE
--- Stores user identity metadata, main 8-digit ID, public key, wrapped private key, account status, and admin role flag
+-- Stores user identity metadata, main 8-digit ID, public key, wrapped private key, profile customisation, account status, and admin role flag
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL,
@@ -16,10 +16,18 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   encrypted_private_key TEXT NOT NULL,
   public_key TEXT NOT NULL,
   panic_password_hash TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
+  share_profile BOOLEAN DEFAULT TRUE NOT NULL,
   is_disabled BOOLEAN DEFAULT FALSE NOT NULL,
   is_admin BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+-- Ensure backwards-compatibility for existing DB instances
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS share_profile BOOLEAN DEFAULT TRUE NOT NULL;
 
 -- Indices for searching profiles by main_number or username
 CREATE INDEX IF NOT EXISTS idx_profiles_main_number ON public.profiles(main_number);
@@ -72,7 +80,21 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender_number ON public.messages(sender_
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at);
 
 
--- 5. SYSTEM SETTINGS TABLE
+-- 5. SUPPORT TICKETS TABLE
+-- Tracks official support ticket statuses ('open', 'in_progress', 'resolved')
+CREATE TABLE IF NOT EXISTS public.support_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  user_number VARCHAR(8) NOT NULL,
+  status TEXT DEFAULT 'open' NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user_number ON public.support_tickets(user_number);
+
+
+-- 6. SYSTEM SETTINGS TABLE
 -- Stores key-value global system configuration (e.g., 'require_invite_code', 'banner_config')
 CREATE TABLE IF NOT EXISTS public.system_settings (
   key TEXT PRIMARY KEY,
@@ -80,7 +102,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 );
 
 
--- 6. INVITE CODES TABLE
+-- 7. INVITE CODES TABLE
 -- Stores beta invitation codes with usage limits
 CREATE TABLE IF NOT EXISTS public.invite_codes (
   code TEXT PRIMARY KEY,
@@ -92,7 +114,7 @@ CREATE TABLE IF NOT EXISTS public.invite_codes (
 );
 
 
--- 7. PUSH SUBSCRIPTIONS TABLE
+-- 8. PUSH SUBSCRIPTIONS TABLE
 -- Stores Web-Push subscription JSON objects per user
 CREATE TABLE IF NOT EXISTS public.push_subscriptions (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -112,6 +134,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.disposable_numbers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invite_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
@@ -168,6 +191,12 @@ CREATE POLICY "Anyone can delete relevant messages"
   USING (true);
 
 
+-- SUPPORT TICKETS POLICIES
+CREATE POLICY "Anyone can manage support tickets"
+  ON public.support_tickets FOR ALL
+  USING (true);
+
+
 -- SYSTEM SETTINGS POLICIES
 CREATE POLICY "System settings viewable by anyone"
   ON public.system_settings FOR SELECT
@@ -204,9 +233,10 @@ CREATE POLICY "Users can manage push subscriptions"
 -- SUPABASE REALTIME CONFIGURATION
 -- =========================================================
 
--- Enable Realtime for messages and disposable_numbers tables
+-- Enable Realtime for messages, disposable_numbers, and support_tickets tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.disposable_numbers;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.support_tickets;
 
 
 -- =========================================================

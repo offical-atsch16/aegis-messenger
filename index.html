@@ -286,6 +286,11 @@
           </div>
         </div>
 
+        <!-- LOCAL SEARCH BAR -->
+        <div class="search-bar-wrapper" style="padding: 8px 16px;">
+          <input type="text" id="sidebar-search-input" placeholder="🔍 Nachrichten & Kontakte suchen..." autocomplete="off" class="sender-dropdown" style="width: 100%;">
+        </div>
+
         <!-- ADD CONTACT & CREATE GROUP SECTION -->
         <div class="section-title">
           <span>Kontakt & Gruppen</span>
@@ -410,6 +415,16 @@
           </div>
         </header>
 
+        <!-- SUPPORT DISCLAIMER BANNER -->
+        <div id="support-disclaimer-banner" class="support-disclaimer hidden">
+          <div class="support-disclaimer-icon">🛡️</div>
+          <div class="support-disclaimer-text">
+            <strong>Offizieller Support-Kanal (ID: 000000)</strong>
+            <p>Anfragen werden Ende-zu-Ende verschlüsselt an das verifizierte Admin-Team gesendet. Gebe niemals deinen privaten Schlüssel preis.</p>
+          </div>
+          <div id="support-ticket-status-badge" class="support-status-badge">Status: Offen</div>
+        </div>
+
         <!-- EMPTY STATE (NO CONTACT SELECTED) -->
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">
@@ -420,8 +435,11 @@
         </div>
 
         <!-- MESSAGES FEED -->
-        <div id="messages-container" class="messages-container hidden">
-          <!-- Dynamically appended chat messages -->
+        <div style="position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;">
+          <div id="messages-container" class="messages-container hidden">
+            <!-- Dynamically appended chat messages -->
+          </div>
+          <div id="chat-watermark-overlay" class="forensic-watermark-overlay"></div>
         </div>
 
         <!-- FILE PREVIEW BAR & PROGRESS BAR -->
@@ -505,6 +523,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Nutzer-Verwaltung</span>
         </button>
+        <button type="button" class="admin-tab-btn" data-tab="support">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span>Support Tickets</span>
+        </button>
       </nav>
 
       <!-- TAB 1: STATISTIKEN & GLOBALE REGISTRIERUNG -->
@@ -558,6 +580,29 @@
               <input type="checkbox" id="admin-maintenance-toggle">
               <span class="slider round"></span>
             </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: SUPPORT TICKETS MANAGEMENT -->
+      <div id="admin-tab-support" class="admin-tab-content hidden">
+        <div class="admin-section admin-card-box">
+          <h4>Support Ticket Verwaltung (ID: 000000)</h4>
+          <p class="admin-desc" style="margin-bottom: 12px;">Verwalte eingegangene Support-Anfragen, erstelle Status-Updates und sende Antworten im Namen von Support (000000).</p>
+          <div class="table-responsive">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Nutzer ID / Nummer</th>
+                  <th>Status</th>
+                  <th>Letztes Update</th>
+                  <th>Aktion</th>
+                </tr>
+              </thead>
+              <tbody id="admin-support-tbody">
+                <!-- Dynamically populated support tickets -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -783,11 +828,11 @@
       </div>
 
       <div class="settings-grid">
-        <!-- CARD 1: KONTO & IDS -->
+        <!-- CARD 1: KONTO & PROFIL-MANAGEMENT -->
         <div class="settings-card-segment">
           <div class="settings-segment-header">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <h4>Konto & Identifikatoren</h4>
+            <h4>Profil-Management & Datenschutz</h4>
           </div>
           <div class="settings-info-box">
             <div class="settings-info-item">
@@ -799,6 +844,32 @@
               <span id="settings-username-display" class="info-value">--</span>
             </div>
           </div>
+
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="settings-display-name-input">Profilname / Anzeigename</label>
+            <input type="text" id="settings-display-name-input" placeholder="z. B. Alex Aegis" maxlength="40" autocomplete="off">
+          </div>
+
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="settings-avatar-url-input">Profilbild-URL oder Avatar (Optional)</label>
+            <input type="text" id="settings-avatar-url-input" placeholder="https://... oder Base64 Bild URL" autocomplete="off">
+          </div>
+
+          <div class="admin-toggle-row" style="margin-top: 12px; margin-bottom: 12px;">
+            <div class="admin-toggle-info">
+              <span style="font-weight: 600; font-size: 13px;">Profilname & Bild mit Kontakten teilen</span>
+              <p class="settings-desc">Bei Deaktivierung bleibt dein Profil für andere anonym und Kontakte sehen nur deinen lokalen Nickname.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-share-profile-toggle" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <button id="save-profile-settings-btn" class="btn primary-btn full-width-btn" style="margin-bottom: 10px;">
+            <span>Profil-Einstellungen Speichern</span>
+          </button>
+
           <button id="restart-onboarding-btn" class="btn secondary-btn full-width-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             <span>Einführungstour erneut starten</span>
@@ -811,6 +882,17 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <h4>Sicherheit & Backup</h4>
           </div>
+
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="auto-lock-timer-select">⏱️ Auto-Session Lock Timer</label>
+            <select id="auto-lock-timer-select" class="sender-dropdown" style="width: 100%;">
+              <option value="off">Deaktiviert</option>
+              <option value="1m">1 Minute Inaktivität</option>
+              <option value="5m" selected>5 Minuten Inaktivität</option>
+              <option value="15m">15 Minuten Inaktivität</option>
+            </select>
+          </div>
+
           <p class="settings-desc">Exportiere dein kryptografisches Schlüsselpaar (öffentlicher & passwortgeschützter privater Schlüssel) als sichere JSON-Datei.</p>
           <button id="export-keys-btn" class="btn secondary-btn full-width-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -988,8 +1070,9 @@
           <button id="close-lightbox-btn" class="icon-btn" aria-label="Schließen">&times;</button>
         </div>
       </div>
-      <div class="lightbox-body">
+      <div class="lightbox-body" style="position: relative; overflow: hidden;">
         <img id="lightbox-img" src="" alt="Vorschau">
+        <div id="lightbox-watermark-overlay" class="forensic-watermark-overlay"></div>
       </div>
     </div>
   </div>
@@ -1080,6 +1163,12 @@
             <button id="toggle-voice-mask-btn" class="icon-btn call-control-circle" title="Voice Masking (Stimmverfremdung Ein/Aus)">
               🎭
             </button>
+            <button id="toggle-pip-call-btn" class="icon-btn call-control-circle" title="Picture-in-Picture (Schwebendes Videofenster)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><rect x="11" y="9" width="9" height="6" rx="1" ry="1"/></svg>
+            </button>
+            <button id="toggle-fullscreen-call-btn" class="icon-btn call-control-circle" title="Vollbild Modus Toggle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
             <button id="end-call-btn" class="icon-btn call-hangup-btn" title="Auflegen">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             </button>
@@ -1087,6 +1176,27 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- MODAL: AUTO-SESSION LOCK SCREEN OVERLAY -->
+  <div id="auto-lock-overlay" class="modal-overlay hidden" style="z-index: 10000; backdrop-filter: blur(20px); background: rgba(5, 8, 22, 0.95);">
+    <div class="glass-card modal-card auto-lock-card" style="text-align: center; max-width: 380px;">
+      <div class="brand" style="justify-content: center; margin-bottom: 12px;">
+        <div class="brand-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h2>Session Gesperrt</h2>
+      </div>
+      <p class="modal-subtext" style="margin-bottom: 18px;">AegisChat wurde wegen Inaktivität automatisch gesperrt. Bitte Passwort eingeben um fortzufahren.</p>
+      <form id="auto-lock-form" onsubmit="return false;">
+        <div class="form-group">
+          <input type="password" id="auto-lock-password-input" placeholder="Dein Passwort..." required style="text-align: center;">
+        </div>
+        <button id="unlock-session-btn" type="submit" class="btn primary-btn full-width-btn" style="margin-top: 10px;">
+          <span>Session Entsperren 🔓</span>
+        </button>
+      </form>
     </div>
   </div>
 
