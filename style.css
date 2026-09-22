@@ -393,17 +393,43 @@ body {
 
 /* Landing Footer */
 .landing-footer {
-  padding: 24px 0 16px 0;
+  padding: 24px 0 20px 0;
   border-top: 1px solid var(--panel-border);
+  margin-top: 2rem;
 }
 
 .footer-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   font-size: 14px;
   color: var(--text-muted);
   gap: 1rem;
+}
+
+.footer-branding {
+  font-weight: 500;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.footer-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.footer-link:hover {
+  color: var(--accent-cyan);
+  text-decoration: none;
 }
 
 .footer-github-btn {

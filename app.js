@@ -353,6 +353,7 @@ async function stopAndSendVoiceRecording() {
           ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
         },
         body: JSON.stringify({
+          sender_id: currentUser ? currentUser.id : null,
           sender_number: senderNumber,
           recipient_number: activeContact.number,
           encrypted_payload: encryptedPayloadStr
@@ -1202,14 +1203,22 @@ async function exportPublicKey(key) {
 }
 
 async function importPublicKey(jwkB64) {
-  const jwk = JSON.parse(atob(jwkB64));
-  return await window.crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    []
-  );
+  if (!jwkB64 || typeof jwkB64 !== 'string') {
+    throw new Error("Public Key nicht verfügbar");
+  }
+  try {
+    const jwk = JSON.parse(atob(jwkB64));
+    return await window.crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      []
+    );
+  } catch (e) {
+    console.error("importPublicKey error:", e);
+    throw new Error("Public Key nicht verfügbar");
+  }
 }
 
 async function deriveSharedAesKey(privateKey, peerPublicKey) {
@@ -1585,6 +1594,7 @@ function setupTabBlurProtection() {
 
   window.addEventListener('blur', () => toggleOverlay(true));
   window.addEventListener('focus', () => toggleOverlay(false));
+  window.addEventListener('pagehide', () => toggleOverlay(true));
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       toggleOverlay(true);
@@ -3218,8 +3228,15 @@ async function addOrResolveContact(rawNumber) {
   }
 
   const targetNumber = data.number || cleanNumber;
-  const peerPubKeyObj = await importPublicKey(data.public_key);
-  const sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
+  let peerPubKeyObj = null;
+  let sharedKey = null;
+
+  try {
+    peerPubKeyObj = await importPublicKey(data.public_key);
+    sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
+  } catch (e) {
+    throw new Error("Public Key nicht verfügbar");
+  }
 
   const initialNickname = (data.share_profile && data.display_name) ? data.display_name : (data.isSupport ? 'Offizieller Support' : null);
 
@@ -3384,6 +3401,7 @@ async function handleSendGroupMessage(text) {
             ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
           },
           body: JSON.stringify({
+            sender_id: currentUser ? currentUser.id : null,
             sender_number: senderNumber,
             recipient_number: memberNumber,
             encrypted_payload: encryptedPayloadStr
@@ -3771,6 +3789,7 @@ async function handleSendMessage(e) {
         ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
       },
       body: JSON.stringify({
+        sender_id: currentUser ? currentUser.id : null,
         sender_number: senderNumber,
         recipient_number: recipientNumber,
         encrypted_payload: encryptedPayloadStr
