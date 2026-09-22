@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datenschutzerklärung • AegisChat</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    .legal-container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 32px;
+      line-height: 1.6;
+    }
+    .legal-header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border-glass);
+      padding-bottom: 16px;
+    }
+    .legal-header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-bright);
+    }
+    .legal-section {
+      margin-bottom: 24px;
+    }
+    .legal-section h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 12px;
+    }
+    .legal-section p, .legal-section li {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-background">
+    <div class="glow-sphere glow-1"></div>
+    <div class="glow-sphere glow-2"></div>
+  </div>
+
+  <div class="legal-container glass-card">
+    <a href="/" class="back-link">← Zurück zu AegisChat</a>
+
+    <div class="legal-header">
+      <h1>Datenschutzerklärung (DSGVO)</h1>
+      <p style="color: var(--text-muted); font-size: 13px;">Datenschutz nach dem Zero-Knowledge & Ephemeral Architecture Prinzip</p>
+    </div>
+
+    <div class="legal-section">
+      <h2>1. Datenschutz auf einen Blick</h2>
+      <p>AegisChat ist nach dem Prinzip des Datenminimalismus und Zero-Knowledge konzipiert. Es werden weder E-Mail-Adressen, Klarnamen noch Telefonnummern erhoben. Die Kommunikation erfolgt Ende-zu-Ende-verschlüsselt direkt zwischen den Endgeräten.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2>2. Ende-zu-Ende-Verschlüsselung (E2EE) & Schlüsselspeicherung</h2>
+      <p>Sämtliche Nachrichten, Sprachnachrichten und Medienanhänge werden lokal auf Ihrem Endgerät mit WebCrypto API (ECDH P-256 und AES-GCM-256) verschlüsselt. Private Schlüssel verbleiben ausschließlich verschlüsselt im RAM/sessionStorage Ihres Browsers und verlassen zu keinem Zeitpunkt Ihr Gerät.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2>3. Täglicher Server-Wipe um 23:59 Uhr (Europe/Berlin)</h2>
+      <p>Um maximale Ephemerität zu gewährleisten, führt das System täglich um 23:59 Uhr (Europe/Berlin) über automatisierte Datenbank-Routinen (<code>pg_cron</code>) eine vollständige Bereinigung aus. Sämtliche ausgetauschten Nachrichten und temporären Uploads werden serverseitig unwiderruflich gelöscht.</p>
+    </div>
+
+    <div class="legal-section">
+      <h2>4. Web-Push Notifications (VAPID)</h2>
+      <p>Sofern Sie Push-Benachrichtigungen aktivieren, wird ein anonymer Web-Push-Token verarbeitet. Nachrichten-Inhalte werden in Push-Payloads anonymisiert übermittelt ("Neue Nachricht empfangen"), ohne sensible Daten offenzulegen.</p>
+    </div>
+  </div>
+</body>
+</html>

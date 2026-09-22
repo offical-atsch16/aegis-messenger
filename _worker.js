@@ -1,6 +1,62 @@
 // Cloudflare Pages Worker (`_worker.js`)
 // AegisChat Secured Proxy to Supabase with Admin, Invite System & Web Push Notifications
 
+// Username Blacklist & Homoglyph Anti-Spoofing Validation Helper
+function validateUsername(rawUsername) {
+  if (!rawUsername || typeof rawUsername !== 'string' || rawUsername.trim().length === 0) {
+    return { valid: false, error: "Dieser Profilname ist reserviert oder enthält ungültige Zeichen." };
+  }
+
+  // 1. Unicode NFKD Normalization
+  let normalized = rawUsername.normalize('NFKD');
+
+  // 2. Homoglyph Mapping (Cyrillic & Greek to Latin equivalent)
+  const homoglyphs = {
+    'а': 'a', 'α': 'a', 'в': 'b', 'β': 'b', 'с': 'c', 'ϲ': 'c',
+    'ԁ': 'd', 'е': 'e', 'ε': 'e', 'є': 'e', 'ƒ': 'f', 'ɡ': 'g',
+    'н': 'h', 'і': 'i', 'ι': 'i', 'ï': 'i', 'ј': 'j', 'к': 'k',
+    'κ': 'k', 'м': 'm', 'μ': 'm', 'п': 'n', 'ν': 'n', 'о': 'o',
+    'ο': 'o', 'ø': 'o', 'р': 'p', 'ρ': 'p', 'г': 'r', 'ѕ': 's',
+    'т': 't', 'τ': 't', 'υ': 'u', 'ω': 'w', 'х': 'x', 'χ': 'x',
+    'у': 'y', 'ζ': 'z'
+  };
+
+  let mapped = '';
+  for (const char of normalized.toLowerCase()) {
+    mapped += homoglyphs[char] || char;
+  }
+
+  // 3. Leet-speak, Whitespace & Zero-Width Space Neutralization
+  let cleaned = mapped
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+    .replace(/4/g, 'a')
+    .replace(/@/g, 'a')
+    .replace(/3/g, 'e')
+    .replace(/1/g, 'i')
+    .replace(/!/g, 'i')
+    .replace(/\|/g, 'i')
+    .replace(/0/g, 'o')
+    .replace(/5/g, 's')
+    .replace(/\$/g, 's')
+    .replace(/7/g, 't')
+    .replace(/\+/g, 't')
+    .replace(/[^a-z0-9]/g, '');
+
+  const blacklist = [
+    "admin", "administrator", "support", "aegis", "system", "ceo", "chef", "boss",
+    "official", "moderator", "mod", "root", "founder", "service", "help", "dev",
+    "developer", "security", "staff", "owner"
+  ];
+
+  for (const term of blacklist) {
+    if (cleaned.includes(term)) {
+      return { valid: false, error: "Dieser Profilname ist reserviert oder enthält ungültige Zeichen." };
+    }
+  }
+
+  return { valid: true };
+}
+
 // Base64URL Helpers
 function base64UrlToUint8Array(base64UrlString) {
   const padding = '='.repeat((4 - base64UrlString.length % 4) % 4);
@@ -803,13 +859,24 @@ export default {
       // 11. AUTH REGISTER (/api/auth/register)
       if (url.pathname === '/api/auth/register' && request.method === 'POST') {
         const body = await request.json();
-        const { username, password, main_number, encrypted_private_key, public_key, invite_code } = body;
+        const { username, password, main_number, encrypted_private_key, public_key, invite_code, created_by_admin } = body;
 
         if (!username || !password || !main_number || !encrypted_private_key || !public_key) {
           return new Response(JSON.stringify({ error: 'Fehlende Felder für Registrierung.' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' }
           });
+        }
+
+        // Validate username against blacklist unless created by admin
+        if (!created_by_admin) {
+          const valRes = validateUsername(username);
+          if (!valRes.valid) {
+            return new Response(JSON.stringify({ error: valRes.error }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         }
 
         // Check maintenance mode
@@ -1194,7 +1261,7 @@ export default {
         // Support channel special virtual profile
         if (number === '000000' || number === '00000000') {
           return new Response(JSON.stringify({
-            number: '000000',
+            number: '00000000',
             public_key: 'SUPPORT_OFFICIAL_KEY',
             display_name: 'Offizieller Support',
             avatar_url: null,
