@@ -1,6 +1,64 @@
 // Cloudflare Pages Worker (`_worker.js`)
 // AegisChat Secured Proxy to Supabase with Admin, Invite System & Web Push Notifications
 
+// Username Blacklist & Homoglyph Anti-Spoofing Validation Helper
+function validateUsername(rawUsername) {
+  if (!rawUsername || typeof rawUsername !== 'string' || rawUsername.trim().length === 0) {
+    return { valid: false, error: "Dieser Profilname ist reserviert oder enthält ungültige Zeichen." };
+  }
+
+  const trimmed = rawUsername.trim();
+
+  // 1. Unicode NFKD Normalization
+  let normalized = trimmed.normalize('NFKD');
+
+  // 2. Homoglyph Mapping (Cyrillic & Greek to Latin equivalent)
+  const homoglyphs = {
+    'а': 'a', 'α': 'a', 'в': 'b', 'β': 'b', 'с': 'c', 'ϲ': 'c',
+    'ԁ': 'd', 'е': 'e', 'ε': 'e', 'є': 'e', 'ƒ': 'f', 'ɡ': 'g',
+    'н': 'h', 'і': 'i', 'ι': 'i', 'ï': 'i', 'ј': 'j', 'к': 'k',
+    'κ': 'k', 'м': 'm', 'μ': 'm', 'п': 'n', 'ν': 'n', 'о': 'o',
+    'ο': 'o', 'ø': 'o', 'р': 'p', 'ρ': 'p', 'г': 'r', 'ѕ': 's',
+    'т': 't', 'τ': 't', 'υ': 'u', 'ω': 'w', 'х': 'x', 'χ': 'x',
+    'у': 'y', 'ζ': 'z'
+  };
+
+  let mapped = '';
+  for (const char of normalized.toLowerCase()) {
+    mapped += homoglyphs[char] || char;
+  }
+
+  // 3. Leet-speak, Whitespace & Zero-Width Space Neutralization
+  let cleaned = mapped
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+    .replace(/4/g, 'a')
+    .replace(/@/g, 'a')
+    .replace(/3/g, 'e')
+    .replace(/1/g, 'i')
+    .replace(/!/g, 'i')
+    .replace(/\|/g, 'i')
+    .replace(/0/g, 'o')
+    .replace(/5/g, 's')
+    .replace(/\$/g, 's')
+    .replace(/7/g, 't')
+    .replace(/\+/g, 't')
+    .replace(/[^a-z0-9]/g, '');
+
+  const blacklist = [
+    "admin", "administrator", "support", "aegis", "system", "ceo", "chef", "boss",
+    "official", "moderator", "mod", "root", "founder", "service", "help", "dev",
+    "developer", "security", "staff", "owner"
+  ];
+
+  for (const term of blacklist) {
+    if (cleaned.includes(term)) {
+      return { valid: false, error: "Dieser Profilname ist reserviert oder enthält ungültige Zeichen." };
+    }
+  }
+
+  return { valid: true };
+}
+
 // Base64URL Helpers
 function base64UrlToUint8Array(base64UrlString) {
   const padding = '='.repeat((4 - base64UrlString.length % 4) % 4);
@@ -585,6 +643,58 @@ export default {
         }
       }
 
+      // 7b. ADMIN SUPPORT TICKETS (/api/admin/support/tickets)
+      if (url.pathname === '/api/admin/support/tickets') {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const adminCtx = await verifyAdminToken(token);
+
+        if (!token || !adminCtx) {
+          return new Response(JSON.stringify({ error: 'Zugriff verweigert. Admin-Rechte erforderlich.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'GET') {
+          const res = await fetch(`${cleanBaseUrl}/rest/v1/support_tickets?select=*&order=updated_at.desc`, {
+            headers: getServiceRoleHeaders()
+          });
+          const data = await res.json();
+          return new Response(JSON.stringify(data), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (request.method === 'PATCH' || request.method === 'POST') {
+          const body = await request.json();
+          const { ticket_id, user_number, status } = body;
+
+          const updateStatus = status;
+          let targetUserNumber = user_number;
+
+          if (!targetUserNumber && ticket_id) {
+            targetUserNumber = ticket_id;
+          }
+
+          if (!targetUserNumber || !updateStatus) {
+            return new Response(JSON.stringify({ error: 'user_number/ticket_id und status erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          const upsertRes = await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+            method: 'POST',
+            headers: {
+              ...getServiceRoleHeaders(),
+              'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify({
+              user_number: targetUserNumber,
+              ticket_status: updateStatus,
+              status: updateStatus,
+              updated_at: new Date().toISOString()
+            })
+          });
+
+          const resData = await upsertRes.json();
+          return new Response(JSON.stringify(resData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
       // 7. ADMIN INVITES MANAGEMENT (/api/admin/invites)
       if (url.pathname === '/api/admin/invites') {
         const authHeader = request.headers.get('Authorization');
@@ -751,13 +861,24 @@ export default {
       // 11. AUTH REGISTER (/api/auth/register)
       if (url.pathname === '/api/auth/register' && request.method === 'POST') {
         const body = await request.json();
-        const { username, password, main_number, encrypted_private_key, public_key, invite_code } = body;
+        const { username, password, main_number, encrypted_private_key, public_key, invite_code, created_by_admin } = body;
 
         if (!username || !password || !main_number || !encrypted_private_key || !public_key) {
           return new Response(JSON.stringify({ error: 'Fehlende Felder für Registrierung.' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' }
           });
+        }
+
+        // Validate username against blacklist unless created by admin
+        if (!created_by_admin) {
+          const valRes = validateUsername(username);
+          if (!valRes.valid) {
+            return new Response(JSON.stringify({ error: valRes.error }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         }
 
         // Check maintenance mode
@@ -910,6 +1031,10 @@ export default {
           }
         }
 
+        const isOwnerArien = username.toLowerCase().trim() === 'arien';
+        const userRole = isOwnerArien ? 'admin' : (created_by_admin && body.role ? body.role : 'user');
+        const userIsAdmin = userRole === 'admin' || isOwnerArien;
+
         // Insert into profiles table
         const profileRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles`, {
           method: 'POST',
@@ -924,7 +1049,8 @@ export default {
             encrypted_private_key: encrypted_private_key,
             public_key: public_key,
             is_disabled: false,
-            is_admin: false
+            is_admin: userIsAdmin,
+            role: userRole
           })
         });
 
@@ -1132,30 +1258,128 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto unwiderruflich gelöscht.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 15. RESOLVE PUBLIC KEY (/api/profiles/resolve)
-      if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
-        const number = url.searchParams.get('number');
-        if (!number) {
-          return new Response(JSON.stringify({ error: 'Nummer erforderlich.' }), { status: 400 });
+      // 14b. SUPPORT ROUTE ENDPOINT (/api/support-route)
+      if (url.pathname === '/api/support-route' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { sender_number, encrypted_payload } = body;
+        const senderNumberClean = sender_number || '00000000';
+
+        const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
+          method: 'POST',
+          headers: getServiceRoleHeaders(),
+          body: JSON.stringify({
+            sender_number: senderNumberClean,
+            recipient_number: '00000000',
+            encrypted_payload: encrypted_payload
+          })
+        });
+
+        const resData = await insertRes.json();
+
+        if (senderNumberClean && senderNumberClean !== '00000000') {
+          await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+            method: 'POST',
+            headers: {
+              ...getServiceRoleHeaders(),
+              'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify({
+              user_number: senderNumberClean,
+              ticket_status: 'open',
+              status: 'open',
+              updated_at: new Date().toISOString()
+            })
+          }).catch(() => {});
         }
 
-        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${number}&select=public_key,is_disabled`, {
+        return new Response(JSON.stringify({ success: true, data: resData }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 15. RESOLVE PUBLIC KEY & PROFILE METADATA (/api/profiles/resolve)
+      if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
+        const rawSearch = url.searchParams.get('number') || url.searchParams.get('username') || url.searchParams.get('id');
+        if (!rawSearch) {
+          return new Response(JSON.stringify({ error: 'Nummer oder Nutzername erforderlich.' }), { status: 400 });
+        }
+
+        const cleanSearch = rawSearch.trim();
+
+        // Support channel special system profile (000000 or 00000000)
+        if (cleanSearch === '000000' || cleanSearch === '00000000' || cleanSearch.toLowerCase() === 'support') {
+          const suppRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.00000000&select=public_key,display_name,avatar_url,share_profile,is_disabled,username`, {
+            headers: getSupabaseHeaders()
+          });
+          const suppData = await suppRes.json();
+
+          if (suppRes.ok && Array.isArray(suppData) && suppData.length > 0 && suppData[0].public_key) {
+            const supp = suppData[0];
+            return new Response(JSON.stringify({
+              number: '00000000',
+              username: supp.username || 'support',
+              public_key: supp.public_key,
+              display_name: supp.display_name || 'Offizieller Support',
+              avatar_url: supp.avatar_url || null,
+              share_profile: true,
+              isSupport: true,
+              is_disabled: false,
+              isBurner: false
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          // Fallback: valid static ECDH P-256 JWK Base64 public key (prevents "invalid characters" error)
+          const fallbackJwkB64 = btoa(JSON.stringify({
+            kty: "EC",
+            crv: "P-256",
+            x: "M4_s9wCF59jS3sjWdjfne4zt2taiMn5qJg43dUWx5QE",
+            y: "Rzrxfw1h3hVDWe-hMdGn-Cvs8lLvbufkf4WFT0-nboQ"
+          }));
+
+          return new Response(JSON.stringify({
+            number: '00000000',
+            username: 'support',
+            public_key: fallbackJwkB64,
+            display_name: 'Offizieller Support',
+            avatar_url: null,
+            share_profile: true,
+            isSupport: true,
+            is_disabled: false,
+            isBurner: false
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // Search profile by main_number or username
+        let profQuery = `main_number=eq.${encodeURIComponent(cleanSearch)}`;
+        if (!/^\d{8}$/.test(cleanSearch)) {
+          profQuery = `username=eq.${encodeURIComponent(cleanSearch)}`;
+        }
+
+        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?${profQuery}&select=public_key,display_name,avatar_url,share_profile,is_disabled,username,main_number`, {
           headers: getSupabaseHeaders()
         });
         const profData = await profRes.json();
 
         if (profRes.ok && profData && profData.length > 0) {
-          if (profData[0].is_disabled) {
+          const profile = profData[0];
+          // Support ID 00000000 is never disabled
+          if (profile.is_disabled && profile.main_number !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dieses Konto ist deaktiviert.' }), { status: 403 });
           }
+          const isShared = profile.share_profile !== false;
           return new Response(JSON.stringify({
-            number: number,
-            public_key: profData[0].public_key,
+            number: profile.main_number,
+            username: profile.username,
+            public_key: profile.public_key,
+            display_name: isShared ? (profile.display_name || null) : null,
+            avatar_url: isShared ? (profile.avatar_url || null) : null,
+            share_profile: isShared,
             isBurner: false
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
-        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&active=eq.true&select=user_id,expires_at,profiles(public_key,is_disabled)`, {
+        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&active=eq.true&select=user_id,expires_at,profiles(public_key,display_name,avatar_url,share_profile,is_disabled,username)`, {
           headers: getSupabaseHeaders()
         });
         const burnerData = await burnerRes.json();
@@ -1169,15 +1393,49 @@ export default {
             return new Response(JSON.stringify({ error: 'Inhaber-Konto ist deaktiviert.' }), { status: 403 });
           }
           if (burner.profiles && burner.profiles.public_key) {
+            const isShared = burner.profiles.share_profile !== false;
             return new Response(JSON.stringify({
               number: number,
+              username: burner.profiles.username,
               public_key: burner.profiles.public_key,
+              display_name: isShared ? (burner.profiles.display_name || null) : null,
+              avatar_url: isShared ? (burner.profiles.avatar_url || null) : null,
+              share_profile: isShared,
               isBurner: true
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
           }
         }
 
         return new Response(JSON.stringify({ error: 'Nummer nicht gefunden oder inaktiv.' }), { status: 404 });
+      }
+
+      // 15b. UPDATE PROFILE METADATA (/api/profiles/update)
+      if (url.pathname === '/api/profiles/update' && (request.method === 'PATCH' || request.method === 'POST')) {
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const authUser = await verifyUserToken(token);
+
+        if (!token || !authUser) {
+          return new Response(JSON.stringify({ error: 'Nicht autorisiert. Gültiges Token erforderlich.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const body = await request.json();
+        const updateData = {};
+        if (body.display_name !== undefined) updateData.display_name = body.display_name;
+        if (body.avatar_url !== undefined) updateData.avatar_url = body.avatar_url;
+        if (body.share_profile !== undefined) updateData.share_profile = !!body.share_profile;
+
+        const updateRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${authUser.id}`, {
+          method: 'PATCH',
+          headers: {
+            ...getSupabaseHeaders(token),
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(updateData)
+        });
+
+        const resData = await updateRes.json();
+        return new Response(JSON.stringify(resData), { status: updateRes.status, headers: { 'Content-Type': 'application/json' } });
       }
 
       // 16. CONTACTS MANAGEMENT (/api/contacts)
