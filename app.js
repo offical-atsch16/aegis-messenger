@@ -2457,6 +2457,7 @@ async function initMainChatUI() {
   loadGroupsFromStorage();
   connectRealtimeWebSocket();
   fetchAndProcessUnreadMessages();
+  checkUrlRouteRedirect();
 }
 
 // --- GROUP CHAT & P2P FULL MESH CALL LOGIC ---
@@ -3184,48 +3185,53 @@ function renderContacts() {
 
 async function handleAddContact() {
   const input = document.getElementById('peer-number-input');
-  const number = input.value.trim();
+  const rawInput = input.value.trim();
 
-  if (number.length !== 8 || !/^\d{8}$/.test(number)) {
-    showToast('Bitte eine gültige 8-stellige ID oder Einweg-Nummer eingeben.', true);
+  if (!rawInput) {
+    showToast('Bitte eine 8-stellige ID, Einweg-Nummer oder Nutzername eingeben.', true);
     return;
   }
 
   try {
-    await addOrResolveContact(number);
+    await addOrResolveContact(rawInput);
     input.value = '';
   } catch (err) {
     showToast(`Fehler beim Auflösen: ${err.message}`, true);
   }
 }
 
-async function addOrResolveContact(number) {
-  let existing = contacts.find(c => c.number === number);
+async function addOrResolveContact(rawNumber) {
+  let cleanNumber = String(rawNumber).trim();
+  if (cleanNumber === '000000') cleanNumber = '00000000';
+
+  let existing = contacts.find(c => c.number === cleanNumber || (c.username && c.username.toLowerCase() === cleanNumber.toLowerCase()));
   if (existing) {
     selectContact(existing);
     return existing;
   }
 
-  const res = await fetch(`/api/profiles/resolve?number=${number}`);
+  const res = await fetch(`/api/profiles/resolve?number=${encodeURIComponent(cleanNumber)}`);
   const data = await res.json();
 
   if (!res.ok || data.error) {
-    throw new Error(data.error || 'Nummer konnte nicht aufgelöst werden.');
+    throw new Error(data.error || 'Nummer/Profil konnte nicht aufgelöst werden.');
   }
 
+  const targetNumber = data.number || cleanNumber;
   const peerPubKeyObj = await importPublicKey(data.public_key);
   const sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
 
-  const initialNickname = (data.share_profile && data.display_name) ? data.display_name : null;
+  const initialNickname = (data.share_profile && data.display_name) ? data.display_name : (data.isSupport ? 'Offizieller Support' : null);
 
   const newContact = {
-    number: data.number,
+    number: targetNumber,
     username: data.username || null,
     display_name: data.display_name || null,
     avatar_url: data.avatar_url || null,
     share_profile: data.share_profile,
     nickname: initialNickname,
-    isBurner: data.isBurner,
+    isBurner: !!data.isBurner,
+    isSupport: !!data.isSupport,
     pubKeyB64: data.public_key,
     sharedKey: sharedKey
   };
@@ -3234,8 +3240,23 @@ async function addOrResolveContact(number) {
   renderContacts();
   selectContact(newContact);
 
-  showSavePromptBar(number);
+  showSavePromptBar(targetNumber);
   return newContact;
+}
+
+function checkUrlRouteRedirect() {
+  const path = window.location.pathname;
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetId = urlParams.get('id') || (path === '/support' ? '00000000' : null);
+
+  if (targetId && currentUser) {
+    const cleanId = targetId === '000000' ? '00000000' : targetId;
+    addOrResolveContact(cleanId).then(contact => {
+      if (contact) {
+        selectContact(contact);
+      }
+    }).catch(() => {});
+  }
 }
 
 function showSavePromptBar(number) {

@@ -7,8 +7,10 @@ function validateUsername(rawUsername) {
     return { valid: false, error: "Dieser Profilname ist reserviert oder enthält ungültige Zeichen." };
   }
 
+  const trimmed = rawUsername.trim();
+
   // 1. Unicode NFKD Normalization
-  let normalized = rawUsername.normalize('NFKD');
+  let normalized = trimmed.normalize('NFKD');
 
   // 2. Homoglyph Mapping (Cyrillic & Greek to Latin equivalent)
   const homoglyphs = {
@@ -1029,6 +1031,10 @@ export default {
           }
         }
 
+        const isOwnerArien = username.toLowerCase().trim() === 'arien';
+        const userRole = isOwnerArien ? 'admin' : (created_by_admin && body.role ? body.role : 'user');
+        const userIsAdmin = userRole === 'admin' || isOwnerArien;
+
         // Insert into profiles table
         const profileRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles`, {
           method: 'POST',
@@ -1043,7 +1049,8 @@ export default {
             encrypted_private_key: encrypted_private_key,
             public_key: public_key,
             is_disabled: false,
-            is_admin: false
+            is_admin: userIsAdmin,
+            role: userRole
           })
         });
 
@@ -1251,39 +1258,118 @@ export default {
         return new Response(JSON.stringify({ success: true, message: 'Konto unwiderruflich gelöscht.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // 15. RESOLVE PUBLIC KEY & PROFILE METADATA (/api/profiles/resolve)
-      if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
-        const number = url.searchParams.get('number');
-        if (!number) {
-          return new Response(JSON.stringify({ error: 'Nummer erforderlich.' }), { status: 400 });
+      // 14b. SUPPORT ROUTE ENDPOINT (/api/support-route)
+      if (url.pathname === '/api/support-route' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { sender_number, encrypted_payload } = body;
+        const senderNumberClean = sender_number || '00000000';
+
+        const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
+          method: 'POST',
+          headers: getServiceRoleHeaders(),
+          body: JSON.stringify({
+            sender_number: senderNumberClean,
+            recipient_number: '00000000',
+            encrypted_payload: encrypted_payload
+          })
+        });
+
+        const resData = await insertRes.json();
+
+        if (senderNumberClean && senderNumberClean !== '00000000') {
+          await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+            method: 'POST',
+            headers: {
+              ...getServiceRoleHeaders(),
+              'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify({
+              user_number: senderNumberClean,
+              ticket_status: 'open',
+              status: 'open',
+              updated_at: new Date().toISOString()
+            })
+          }).catch(() => {});
         }
 
-        // Support channel special virtual profile
-        if (number === '000000' || number === '00000000') {
+        return new Response(JSON.stringify({ success: true, data: resData }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 15. RESOLVE PUBLIC KEY & PROFILE METADATA (/api/profiles/resolve)
+      if (url.pathname === '/api/profiles/resolve' && request.method === 'GET') {
+        const rawSearch = url.searchParams.get('number') || url.searchParams.get('username') || url.searchParams.get('id');
+        if (!rawSearch) {
+          return new Response(JSON.stringify({ error: 'Nummer oder Nutzername erforderlich.' }), { status: 400 });
+        }
+
+        const cleanSearch = rawSearch.trim();
+
+        // Support channel special system profile (000000 or 00000000)
+        if (cleanSearch === '000000' || cleanSearch === '00000000' || cleanSearch.toLowerCase() === 'support') {
+          const suppRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.00000000&select=public_key,display_name,avatar_url,share_profile,is_disabled,username`, {
+            headers: getSupabaseHeaders()
+          });
+          const suppData = await suppRes.json();
+
+          if (suppRes.ok && Array.isArray(suppData) && suppData.length > 0 && suppData[0].public_key) {
+            const supp = suppData[0];
+            return new Response(JSON.stringify({
+              number: '00000000',
+              username: supp.username || 'support',
+              public_key: supp.public_key,
+              display_name: supp.display_name || 'Offizieller Support',
+              avatar_url: supp.avatar_url || null,
+              share_profile: true,
+              isSupport: true,
+              is_disabled: false,
+              isBurner: false
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          // Fallback: valid static ECDH P-256 JWK Base64 public key (prevents "invalid characters" error)
+          const fallbackJwkB64 = btoa(JSON.stringify({
+            kty: "EC",
+            crv: "P-256",
+            x: "M4_s9wCF59jS3sjWdjfne4zt2taiMn5qJg43dUWx5QE",
+            y: "Rzrxfw1h3hVDWe-hMdGn-Cvs8lLvbufkf4WFT0-nboQ"
+          }));
+
           return new Response(JSON.stringify({
             number: '00000000',
-            public_key: 'SUPPORT_OFFICIAL_KEY',
+            username: 'support',
+            public_key: fallbackJwkB64,
             display_name: 'Offizieller Support',
             avatar_url: null,
             share_profile: true,
             isSupport: true,
+            is_disabled: false,
             isBurner: false
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
-        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.${number}&select=public_key,display_name,avatar_url,share_profile,is_disabled,username`, {
+        // Search profile by main_number or username
+        let profQuery = `main_number=eq.${encodeURIComponent(cleanSearch)}`;
+        if (!/^\d{8}$/.test(cleanSearch)) {
+          profQuery = `username=eq.${encodeURIComponent(cleanSearch)}`;
+        }
+
+        const profRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?${profQuery}&select=public_key,display_name,avatar_url,share_profile,is_disabled,username,main_number`, {
           headers: getSupabaseHeaders()
         });
         const profData = await profRes.json();
 
         if (profRes.ok && profData && profData.length > 0) {
           const profile = profData[0];
-          if (profile.is_disabled) {
+          // Support ID 00000000 is never disabled
+          if (profile.is_disabled && profile.main_number !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dieses Konto ist deaktiviert.' }), { status: 403 });
           }
           const isShared = profile.share_profile !== false;
           return new Response(JSON.stringify({
-            number: number,
+            number: profile.main_number,
             username: profile.username,
             public_key: profile.public_key,
             display_name: isShared ? (profile.display_name || null) : null,
