@@ -33,6 +33,19 @@ let realtimeChannel = null;
 // Public System Settings & Invite State
 let publicRequireInviteCode = false;
 let verifiedInviteCode = null;
+
+// FOUNDER & LEAD DEV VIP BADGE HELPER ("ARIEN")
+function isFounder(username, number = '') {
+  if (username && String(username).toLowerCase().trim() === 'arien') return true;
+  return false;
+}
+
+function getFounderBadgeHtml(username, extraClass = '') {
+  if (isFounder(username)) {
+    return `<span class="badge-founder ${extraClass}" title="Founder & Lead Dev"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z"/></svg> Founder & Lead Dev</span>`;
+  }
+  return '';
+}
 let publicBannerConfig = null;
 let vapidPublicKey = null;
 let swRegistration = null;
@@ -157,6 +170,28 @@ async function fetchAndDecryptFileBlob(fileUrl, sharedKey, mimeType) {
   return URL.createObjectURL(blob);
 }
 
+function generateForensicSessionHash() {
+  if (!currentUser) return 'AEGIS-PROTECTED-SESSION';
+  const number = currentUser.main_number || '00000000';
+  const now = new Date();
+  const timeStr = `${now.getHours()}:${now.getMinutes() < 10 ? '0' : ''}${now.getMinutes()}`;
+  return `AEGIS • ID:${number} • ${timeStr} • CONFIDENTIAL`;
+}
+
+function updateForensicWatermarks() {
+  const text = generateForensicSessionHash();
+  const overlays = document.querySelectorAll('.forensic-watermark-overlay');
+  overlays.forEach(overlay => {
+    overlay.innerHTML = '';
+    for (let i = 0; i < 16; i++) {
+      const span = document.createElement('span');
+      span.className = 'watermark-pattern-text';
+      span.textContent = text;
+      overlay.appendChild(span);
+    }
+  });
+}
+
 function openLightbox(imgSrc, fileName) {
   const modal = document.getElementById('lightbox-modal');
   const img = document.getElementById('lightbox-img');
@@ -170,6 +205,7 @@ function openLightbox(imgSrc, fileName) {
     dlBtn.href = imgSrc;
     dlBtn.download = fileName || 'photo.png';
   }
+  updateForensicWatermarks();
   modal.classList.remove('hidden');
 }
 
@@ -1030,6 +1066,29 @@ function cleanupVoiceMasking() {
 function cleanupCallState() {
   cleanupVoiceMasking();
   stopRingtoneSound();
+
+  if (activeCallPeerNumber) {
+    const duration = callSeconds || 0;
+    const callEventObj = {
+      id: generate8DigitId(),
+      type: isCallInitiator ? 'own' : 'peer',
+      sender_number: isCallInitiator ? (currentUser ? currentUser.main_number : 'own') : activeCallPeerNumber,
+      recipient_number: isCallInitiator ? activeCallPeerNumber : (currentUser ? currentUser.main_number : 'me'),
+      timestamp: Date.now(),
+      text: JSON.stringify({
+        type: 'call_event',
+        call_type: currentCallType || 'audio',
+        event: duration > 0 ? 'ended' : 'missed',
+        duration: duration
+      })
+    };
+    saveChatMessage(activeCallPeerNumber, callEventObj);
+    if (activeContact && activeContact.number === activeCallPeerNumber) {
+      appendMessageUI(callEventObj, true);
+    }
+  }
+  activeCallPeerNumber = null;
+
   if (callTimerInterval) {
     clearInterval(callTimerInterval);
     callTimerInterval = null;
@@ -1642,6 +1701,42 @@ function completeOnboardingTour() {
 // --- DOM EVENT LISTENERS ---
 
 function setupEventListeners() {
+  // Call PiP toggle
+  const pipBtn = document.getElementById('toggle-pip-call-btn');
+  if (pipBtn) {
+    pipBtn.onclick = async () => {
+      const remoteVideo = document.getElementById('remote-video');
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (remoteVideo && remoteVideo.srcObject && document.pictureInPictureEnabled) {
+          await remoteVideo.requestPictureInPicture();
+        } else {
+          showNotification('Bild-im-Bild wird nicht unterstützt oder kein Video aktiv', 'error');
+        }
+      } catch (err) {
+        console.error('PiP Error:', err);
+      }
+    };
+  }
+
+  // Call Fullscreen toggle
+  const fullscreenBtn = document.getElementById('toggle-fullscreen-call-btn');
+  if (fullscreenBtn) {
+    fullscreenBtn.onclick = async () => {
+      const callOverlay = document.getElementById('call-overlay');
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else if (callOverlay) {
+          await callOverlay.requestFullscreen();
+        }
+      } catch (err) {
+        console.error('Fullscreen Error:', err);
+      }
+    };
+  }
+
   const showRegBtn = document.getElementById('show-register-modal-btn');
   const showLoginBtn = document.getElementById('show-login-modal-btn');
   const regModal = document.getElementById('register-modal');
@@ -1751,6 +1846,14 @@ function setupEventListeners() {
       if (mainIdEl) mainIdEl.textContent = currentUser.main_number || '--------';
       if (unameEl) unameEl.textContent = currentUser.username || '--';
     }
+    if (userProfile) {
+      const dnInput = document.getElementById('settings-display-name-input');
+      const avInput = document.getElementById('settings-avatar-url-input');
+      const shareToggle = document.getElementById('settings-share-profile-toggle');
+      if (dnInput) dnInput.value = userProfile.display_name || '';
+      if (avInput) avInput.value = userProfile.avatar_url || '';
+      if (shareToggle) shareToggle.checked = userProfile.share_profile !== false;
+    }
     checkIosPwaNotice();
     checkPushSubscriptionState();
     const stSel = document.getElementById('stealth-mode-select');
@@ -1765,6 +1868,9 @@ function setupEventListeners() {
     document.getElementById('settings-modal').classList.add('hidden');
     showOnboardingTour();
   });
+
+  const saveProfileBtn = document.getElementById('save-profile-settings-btn');
+  if (saveProfileBtn) saveProfileBtn.addEventListener('click', handleSaveProfileSettings);
 
   document.getElementById('export-keys-btn').addEventListener('click', handleExportKeysBackup);
   const savePanicBtn = document.getElementById('save-panic-password-btn');
@@ -2196,6 +2302,123 @@ function handleEmergencyLock() {
   location.reload();
 }
 
+// --- LOCAL SEARCH & AUTO-SESSION LOCK ---
+
+function initLocalSearch() {
+  const searchInput = document.getElementById('sidebar-search-input');
+  if (!searchInput) return;
+
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase().trim();
+    filterSidebarAndChat(query);
+  });
+}
+
+function filterSidebarAndChat(query) {
+  const contactItems = document.querySelectorAll('#contacts-list .contact-item');
+  contactItems.forEach(item => {
+    const text = item.textContent.toLowerCase();
+    if (!query || text.includes(query)) {
+      item.style.display = '';
+    } else {
+      item.style.display = 'none';
+    }
+  });
+
+  const msgBubbles = document.querySelectorAll('#messages-container .msg-bubble');
+  msgBubbles.forEach(bubble => {
+    const text = bubble.textContent.toLowerCase();
+    if (!query || text.includes(query)) {
+      bubble.style.display = '';
+    } else {
+      bubble.style.display = 'none';
+    }
+  });
+}
+
+let inactivityTimer = null;
+let currentAutoLockSetting = '5m';
+
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  const lockOverlay = document.getElementById('auto-lock-overlay');
+  if (lockOverlay && !lockOverlay.classList.contains('hidden')) return;
+
+  const sel = document.getElementById('auto-lock-timer-select');
+  if (sel) currentAutoLockSetting = sel.value;
+
+  if (currentAutoLockSetting === 'off') return;
+
+  let ms = 5 * 60 * 1000;
+  if (currentAutoLockSetting === '1m') ms = 1 * 60 * 1000;
+  if (currentAutoLockSetting === '5m') ms = 5 * 60 * 1000;
+  if (currentAutoLockSetting === '15m') ms = 15 * 60 * 1000;
+
+  inactivityTimer = setTimeout(lockSession, ms);
+}
+
+function lockSession() {
+  const lockOverlay = document.getElementById('auto-lock-overlay');
+  if (lockOverlay) {
+    lockOverlay.classList.remove('hidden');
+    const pwdInput = document.getElementById('auto-lock-password-input');
+    if (pwdInput) {
+      pwdInput.value = '';
+      pwdInput.focus();
+    }
+  }
+}
+
+function setupAutoLockListeners() {
+  ['mousemove', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+    window.addEventListener(evt, resetInactivityTimer, { passive: true });
+  });
+
+  const lockForm = document.getElementById('auto-lock-form');
+  if (lockForm) {
+    lockForm.addEventListener('submit', handleUnlockSession);
+  }
+
+  const sel = document.getElementById('auto-lock-timer-select');
+  if (sel) {
+    sel.addEventListener('change', (e) => {
+      currentAutoLockSetting = e.target.value;
+      resetInactivityTimer();
+    });
+  }
+}
+
+async function handleUnlockSession(e) {
+  if (e) e.preventDefault();
+  const pwdInput = document.getElementById('auto-lock-password-input');
+  const pwd = pwdInput ? pwdInput.value : '';
+
+  if (!pwd || !currentUser) {
+    showToast('Bitte Passwort eingeben.', true);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: currentUser.username, password: pwd })
+    });
+
+    if (res.ok) {
+      const lockOverlay = document.getElementById('auto-lock-overlay');
+      if (lockOverlay) lockOverlay.classList.add('hidden');
+      if (pwdInput) pwdInput.value = '';
+      showToast('Session erfolgreich entsperrt 🔓');
+      resetInactivityTimer();
+    } else {
+      showToast('Falsches Passwort!', true);
+    }
+  } catch (err) {
+    showToast('Entsperren fehlgeschlagen.', true);
+  }
+}
+
 // --- MAIN CHAT INTERFACE LOGIC ---
 
 async function initMainChatUI() {
@@ -2203,7 +2426,7 @@ async function initMainChatUI() {
   document.getElementById('app').classList.remove('hidden');
 
   document.getElementById('my-avatar').textContent = currentUser.username.slice(0, 2).toUpperCase();
-  document.getElementById('my-username').textContent = currentUser.username;
+  document.getElementById('my-username').innerHTML = `${escapeHtml(currentUser.username)} ${getFounderBadgeHtml(currentUser.username)}`;
   document.getElementById('my-id').textContent = `ID: ${currentUser.main_number}`;
 
   // Toggle Admin Button visibility
@@ -2216,6 +2439,11 @@ async function initMainChatUI() {
   }
 
   renderGlobalBanner();
+  updateForensicWatermarks();
+  setInterval(updateForensicWatermarks, 60000); // refresh time watermark every 1m
+  initLocalSearch();
+  setupAutoLockListeners();
+  resetInactivityTimer();
   await fetchMyBurnerNumbers();
   updateSenderDropdown();
   await loadContactsFromSupabase();
@@ -2397,6 +2625,78 @@ function updateSenderDropdown() {
 
 // --- ADMIN DASHBOARD LOGIC (/admin/dashboard) ---
 
+async function loadAdminSupportTickets() {
+  const tbody = document.getElementById('admin-support-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Lade Tickets...</td></tr>';
+
+  try {
+    const res = await fetchWithAuth('/api/admin/support/tickets');
+    if (!res.ok) throw new Error('Tickets konnten nicht geladen werden');
+    const data = await res.json();
+    const tickets = Array.isArray(data) ? data : (data.tickets || []);
+
+    if (tickets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Keine Support-Tickets vorhanden.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = '';
+    tickets.forEach(ticket => {
+      const tr = document.createElement('tr');
+      const dateStr = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : '-';
+      tr.innerHTML = `
+        <td><code>${escapeHtml(ticket.user_number || ticket.id)}</code></td>
+        <td><span class="badge badge-secondary">${escapeHtml(ticket.ticket_status || 'open')}</span></td>
+        <td>${dateStr}</td>
+        <td>
+          <select class="form-control form-control-sm ticket-status-select" data-ticket-id="${ticket.id}">
+            <option value="open" ${ticket.ticket_status === 'open' ? 'selected' : ''}>Offen</option>
+            <option value="in_progress" ${ticket.ticket_status === 'in_progress' ? 'selected' : ''}>In Bearbeitung</option>
+            <option value="resolved" ${ticket.ticket_status === 'resolved' ? 'selected' : ''}>Gelöst</option>
+          </select>
+        </td>
+        <td>
+          <button class="btn btn-sm btn-primary open-support-chat-btn" data-user-number="${escapeHtml(ticket.user_number)}">Chat öffnen</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // Add event listeners for status select
+    tbody.querySelectorAll('.ticket-status-select').forEach(select => {
+      select.onchange = async (e) => {
+        const ticketId = e.target.dataset.ticketId;
+        const newStatus = e.target.value;
+        try {
+          const updateRes = await fetchWithAuth('/api/admin/support/tickets', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket_id: ticketId, status: newStatus })
+          });
+          if (!updateRes.ok) throw new Error('Status-Update fehlgeschlagen');
+          showNotification('Ticket-Status aktualisiert', 'success');
+        } catch (err) {
+          showNotification(err.message, 'error');
+        }
+      };
+    });
+
+    // Add event listeners for open chat
+    tbody.querySelectorAll('.open-support-chat-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const userNum = e.target.dataset.userNumber;
+        if (userNum) {
+          closeModal('admin-modal');
+          openDirectChat(userNum);
+        }
+      };
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color: var(--danger); text-align: center;">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
 function switchAdminTab(tabName) {
   const tabs = document.querySelectorAll('.admin-tab-btn');
   tabs.forEach(btn => {
@@ -2417,6 +2717,10 @@ function switchAdminTab(tabName) {
       content.classList.remove('active');
     }
   });
+
+  if (tabName === 'support') {
+    loadAdminSupportTickets();
+  }
 }
 
 async function openAdminDashboard() {
@@ -2722,8 +3026,9 @@ async function loadAdminUsers() {
         const freezeBtnText = isFrozen ? 'Freigeben' : 'Einfrieren';
         const freezeBtnClass = isFrozen ? 'btn secondary-btn' : 'btn secondary-btn style-danger';
 
+        const founderBadge = getFounderBadgeHtml(user.username);
         tr.innerHTML = `
-          <td><strong>${escapeHtml(user.username)}</strong> ${roleBadge}</td>
+          <td><strong>${escapeHtml(user.username)}</strong> ${founderBadge} ${roleBadge}</td>
           <td>${user.main_number}</td>
           <td>${statusBadge}</td>
           <td>
@@ -2855,11 +3160,12 @@ function renderContacts() {
     li.className = `contact-item ${activeContact && activeContact.number === c.number ? 'active' : ''}`;
     const displayName = c.nickname ? escapeHtml(c.nickname) : c.number;
     const tag = c.isBurner ? '<span class="contact-type-tag">Burner</span>' : '';
+    const founderBadge = getFounderBadgeHtml(c.username || c.nickname || '');
 
     li.innerHTML = `
       <div class="avatar">${displayName.slice(0, 2).toUpperCase()}</div>
       <div class="contact-details">
-        <span class="contact-name">${displayName}</span>
+        <span class="contact-name">${displayName} ${founderBadge}</span>
         <span class="contact-id">ID: ${c.number}</span>
       </div>
       ${tag}
@@ -2903,9 +3209,15 @@ async function addOrResolveContact(number) {
   const peerPubKeyObj = await importPublicKey(data.public_key);
   const sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
 
+  const initialNickname = (data.share_profile && data.display_name) ? data.display_name : null;
+
   const newContact = {
     number: data.number,
-    nickname: null,
+    username: data.username || null,
+    display_name: data.display_name || null,
+    avatar_url: data.avatar_url || null,
+    share_profile: data.share_profile,
+    nickname: initialNickname,
     isBurner: data.isBurner,
     pubKeyB64: data.public_key,
     sharedKey: sharedKey
@@ -2989,9 +3301,22 @@ function selectContact(contact) {
     document.getElementById('sidebar').classList.add('mobile-hidden');
   }
 
-  const displayName = contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`;
-  document.getElementById('active-avatar').textContent = (contact.nickname || contact.number).slice(0, 2).toUpperCase();
-  document.getElementById('active-contact-name').textContent = displayName;
+  const isSupportChat = contact.number === '000000' || contact.number === '00000000';
+  const supportBanner = document.getElementById('support-disclaimer-banner');
+  if (supportBanner) {
+    if (isSupportChat) {
+      supportBanner.classList.remove('hidden');
+    } else {
+      supportBanner.classList.add('hidden');
+    }
+  }
+
+  const displayName = isSupportChat ? 'Offizieller Support (000000)' : (contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`);
+  const founderBadge = getFounderBadgeHtml(contact.username || contact.nickname || '');
+  const supportBadge = isSupportChat ? '<span class="badge-supporter">🛡️ Support</span>' : '';
+
+  document.getElementById('active-avatar').textContent = isSupportChat ? '🛡️' : (contact.nickname || contact.number).slice(0, 2).toUpperCase();
+  document.getElementById('active-contact-name').innerHTML = `${escapeHtml(displayName)} ${supportBadge} ${founderBadge}`;
 
   showSavePromptBar(contact.number);
   loadAndRenderChatHistory(contact.number);
@@ -3088,6 +3413,55 @@ async function cleanupTemporaryUnreadMessages() {
 }
 
 // --- ACCOUNT SETTINGS, DEACTIVATION, DELETE & BACKUP ---
+
+async function handleSaveProfileSettings() {
+  const dnInput = document.getElementById('settings-display-name-input');
+  const avInput = document.getElementById('settings-avatar-url-input');
+  const shareToggle = document.getElementById('settings-share-profile-toggle');
+
+  const displayName = dnInput ? dnInput.value.trim() : '';
+  const avatarUrl = avInput ? avInput.value.trim() : '';
+  const shareProfile = shareToggle ? shareToggle.checked : true;
+
+  try {
+    const res = await fetch('/api/profiles/update', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        display_name: displayName,
+        avatar_url: avatarUrl,
+        share_profile: shareProfile
+      })
+    });
+
+    if (res.ok) {
+      if (userProfile) {
+        userProfile.display_name = displayName;
+        userProfile.avatar_url = avatarUrl;
+        userProfile.share_profile = shareProfile;
+      }
+      showToast('Profil-Einstellungen erfolgreich gespeichert!');
+      if (currentUser) {
+        const nameToUse = displayName || currentUser.username;
+        document.getElementById('my-username').innerHTML = `${escapeHtml(nameToUse)} ${getFounderBadgeHtml(currentUser.username)}`;
+        if (avatarUrl) {
+          const avatarEl = document.getElementById('my-avatar');
+          if (avatarEl) {
+            avatarEl.innerHTML = `<img src="${escapeHtml(avatarUrl)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+          }
+        }
+      }
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Fehler beim Speichern der Profil-Einstellungen.', true);
+    }
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
 
 async function handleExportKeysBackup() {
   if (!currentUser || !localKeyPair || !localPubKeyB64) return;
@@ -3482,6 +3856,17 @@ function appendMessageUI(msgObj, isNew = false) {
     div.classList.add(msgObj.type === 'own' ? 'encrypting-pulse' : 'decrypting-pulse');
   }
 
+  const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
+  const contact = contacts.find(c => c.number === contactNum);
+  let founderBadge = '';
+  if (msgObj.type === 'own' && currentUser && isFounder(currentUser.username)) {
+    founderBadge = getFounderBadgeHtml(currentUser.username);
+  } else if (msgObj.type !== 'own' && contact && isFounder(contact.username || contact.nickname)) {
+    founderBadge = getFounderBadgeHtml(contact.username || contact.nickname);
+  } else if (msgObj.sender_username && isFounder(msgObj.sender_username)) {
+    founderBadge = getFounderBadgeHtml(msgObj.sender_username);
+  }
+
   const senderMeta = msgObj.type === 'own' ? `An: ${msgObj.recipient_number}` : `Von: ${msgObj.sender_number}`;
   const tickIcon = msgObj.type === 'own' ? '<span class="msg-tick" title="Verschlüsselt gesendet">✓✓</span>' : '';
   const timerBadge = msgObj.expiresAt ? '<span style="font-size: 10px; margin-right: 4px;" title="Selbstzerstörung aktiv">⏱️</span>' : '';
@@ -3489,8 +3874,10 @@ function appendMessageUI(msgObj, isNew = false) {
   let messageContentHtml = '';
   let isFileMessage = false;
   let isVoiceMessage = false;
+  let isCallEvent = false;
   let fileMeta = null;
   let voiceMeta = null;
+  let callEventMeta = null;
 
   try {
     if (msgObj.text && msgObj.text.startsWith('{')) {
@@ -3501,12 +3888,12 @@ function appendMessageUI(msgObj, isNew = false) {
       } else if (parsed && parsed.type === 'voice' && parsed.file_url) {
         isVoiceMessage = true;
         voiceMeta = parsed;
+      } else if (parsed && (parsed.type === 'call_event' || parsed.type === 'call-signal' || parsed.event)) {
+        isCallEvent = true;
+        callEventMeta = parsed;
       }
     }
   } catch (e) {}
-
-  const contactNum = msgObj.type === 'own' ? msgObj.recipient_number : msgObj.sender_number;
-  const contact = contacts.find(c => c.number === contactNum);
 
   if ((isFileMessage && fileMeta && fileMeta.view_once) || (isVoiceMessage && voiceMeta && voiceMeta.view_once)) {
     const meta = fileMeta || voiceMeta;
@@ -3706,12 +4093,52 @@ function appendMessageUI(msgObj, isNew = false) {
           }
         });
     }
+  } else if (isCallEvent && callEventMeta) {
+    const isVideo = callEventMeta.call_type === 'video' || callEventMeta.type === 'video';
+    const icon = isVideo ? '📹' : '📞';
+    const callTypeName = isVideo ? 'Videoanruf' : 'Sprachanruf';
+
+    let statusText = '';
+    let statusClass = '';
+
+    if (callEventMeta.event === 'missed' || callEventMeta.status === 'missed') {
+      statusText = `Verpasster ${callTypeName}`;
+      statusClass = 'call-widget-missed';
+    } else if (callEventMeta.duration) {
+      const m = Math.floor(callEventMeta.duration / 60);
+      const s = callEventMeta.duration % 60;
+      const durFormatted = `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+      statusText = `${callTypeName} • ${durFormatted} Min.`;
+      statusClass = 'call-widget-ended';
+    } else {
+      statusText = `${callTypeName} Beendet`;
+      statusClass = 'call-widget-ended';
+    }
+
+    messageContentHtml = `
+      <div class="call-event-card ${statusClass}">
+        <div class="call-event-icon">${icon}</div>
+        <div class="call-event-info">
+          <span class="call-event-title">${statusText}</span>
+          <span class="call-event-sub">E2EE WebRTC Encrypted</span>
+        </div>
+      </div>
+    `;
   } else {
-    messageContentHtml = `<div>${escapeHtml(msgObj.text)}</div>`;
+    let cleanText = msgObj.text || '';
+    if (cleanText.startsWith('{') && cleanText.endsWith('}')) {
+      try {
+        const p = JSON.parse(cleanText);
+        if (p && p.text) cleanText = p.text;
+        else if (p && p.message) cleanText = p.message;
+        else cleanText = 'Sichere Systemnachricht';
+      } catch (e) {}
+    }
+    messageContentHtml = `<div>${escapeHtml(cleanText)}</div>`;
   }
 
   div.innerHTML = `
-    <div style="font-size: 11px; opacity: 0.8; font-family: var(--font-mono); margin-bottom: 2px;">${senderMeta}</div>
+    <div style="font-size: 11px; opacity: 0.8; font-family: var(--font-mono); margin-bottom: 2px;">${senderMeta} ${founderBadge}</div>
     ${messageContentHtml}
     <div class="msg-meta">
       ${timerBadge}
