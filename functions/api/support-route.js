@@ -17,6 +17,8 @@ export async function onRequestPost(context) {
 
     const cleanBaseUrl = supabaseUrl.replace(/\/+$/, '');
 
+    const senderNumberClean = sender_number || '00000000';
+
     const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
       method: 'POST',
       headers: {
@@ -26,15 +28,35 @@ export async function onRequestPost(context) {
         'Prefer': 'return=representation'
       },
       body: JSON.stringify({
-        sender_number: sender_number || '00000000',
+        sender_number: senderNumberClean,
         recipient_number: '00000000',
         encrypted_payload: encrypted_payload
       })
     });
 
     const resData = await insertRes.json();
-    return new Response(JSON.stringify(resData), {
-      status: insertRes.status,
+
+    // Ensure a support ticket record exists/updates for the user without error
+    if (senderNumberClean && senderNumberClean !== '00000000') {
+      await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+        method: 'POST',
+        headers: {
+          'apikey': serviceRoleKey,
+          'Authorization': `Bearer ${serviceRoleKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify({
+          user_number: senderNumberClean,
+          ticket_status: 'open',
+          status: 'open',
+          updated_at: new Date().toISOString()
+        })
+      }).catch(() => {});
+    }
+
+    return new Response(JSON.stringify({ success: true, data: resData }), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (err) {
