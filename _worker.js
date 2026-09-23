@@ -1135,7 +1135,7 @@ export default {
           if (!profRes.ok || !profList || profList.length === 0) {
             return new Response(JSON.stringify({ error: 'Kein Profil zu dieser Haupt-ID gefunden.' }), { status: 404 });
           }
-          if (profList[0].is_disabled) {
+          if (profList[0].is_disabled && identifier !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert. Bitte kontaktiere den Support oder reaktiviere es.' }), { status: 403 });
           }
           resolvedUsername = profList[0].username;
@@ -1167,7 +1167,7 @@ export default {
           return new Response(JSON.stringify({ error: 'Nutzerprofil nicht gefunden.' }), { status: 404 });
         }
 
-        if (profileData[0].is_disabled) {
+        if (profileData[0].is_disabled && profileData[0].main_number !== '00000000') {
           return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
 
@@ -1329,13 +1329,8 @@ export default {
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
           }
 
-          // Fallback: valid static ECDH P-256 JWK Base64 public key (prevents "invalid characters" error)
-          const fallbackJwkB64 = btoa(JSON.stringify({
-            kty: "EC",
-            crv: "P-256",
-            x: "M4_s9wCF59jS3sjWdjfne4zt2taiMn5qJg43dUWx5QE",
-            y: "Rzrxfw1h3hVDWe-hMdGn-Cvs8lLvbufkf4WFT0-nboQ"
-          }));
+          // Fallback: valid static ECDH P-256 JWK Base64 public key
+          const fallbackJwkB64 = 'eyJrZXlfb3BzIjpbXSwiZXh0Ijp0cnVlLCJrdHkiOiJFQyIsIngiOiJYc0hhR0pDQUI2MWpkZFV3MTh4Q0MxU2czanpHVmlYcURzeVZwZ0NaYWFnIiwieSI6IjgwMGRzNkNpVU83S0ticC14dEJkRDJESy1ibXFnaDVCMlNMLWs5bDhoc0kiLCJjcnYiOiJQLTI1NiJ9';
 
           return new Response(JSON.stringify({
             number: '00000000',
