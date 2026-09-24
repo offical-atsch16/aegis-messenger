@@ -55,11 +55,43 @@ const server = http.createServer((req, res) => {
       }));
       return;
     }
+    if (req.url.startsWith('/api/support-route')) {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let parsed = {};
+        try { parsed = JSON.parse(body || '{}'); } catch(e) {}
+        res.end(JSON.stringify({
+          success: true,
+          ticket_status: 'open',
+          user_number: parsed.sender_number || '88888888',
+          message: parsed.message || parsed.encrypted_payload || ''
+        }));
+      });
+      return;
+    }
     if (req.url.startsWith('/api/admin/support/tickets')) {
+      if (req.method === 'POST' || req.method === 'PATCH') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+          let parsed = {};
+          try { parsed = JSON.parse(body || '{}'); } catch(e) {}
+          res.end(JSON.stringify({
+            success: true,
+            ticket_id: parsed.ticket_id || '1',
+            status: parsed.status || 'in_progress',
+            reply_sent: !!parsed.reply_message
+          }));
+        });
+        return;
+      }
       res.end(JSON.stringify([
         {
           id: '1',
+          user_id: '88888888-8888-8888-8888-888888888888',
           user_number: '88888888',
+          message: 'Hallo Support Team, ich benötige Hilfe beim Login.',
           ticket_status: 'open',
           status: 'open',
           updated_at: new Date().toISOString()

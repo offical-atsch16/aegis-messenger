@@ -83,17 +83,19 @@ CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at
 
 
 -- 5. SUPPORT TICKETS TABLE
--- Tracks official support ticket statuses ('open', 'in_progress', 'resolved')
+-- Tracks official support ticket statuses ('open', 'in_progress', 'resolved') and user message content
 CREATE TABLE IF NOT EXISTS public.support_tickets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   user_number VARCHAR(8) NOT NULL,
+  message TEXT,
   status TEXT DEFAULT 'open' NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_support_tickets_user_number ON public.support_tickets(user_number);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id ON public.support_tickets(user_id);
 
 
 -- 6. SYSTEM SETTINGS TABLE
@@ -194,9 +196,35 @@ CREATE POLICY "Anyone can delete relevant messages"
 
 
 -- SUPPORT TICKETS POLICIES
-CREATE POLICY "Anyone can manage support tickets"
-  ON public.support_tickets FOR ALL
-  USING (true);
+CREATE POLICY "Users can view own tickets"
+  ON public.support_tickets FOR SELECT
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.is_admin = true)
+    )
+  );
+
+CREATE POLICY "Users can create own tickets"
+  ON public.support_tickets FOR INSERT
+  WITH CHECK (
+    auth.uid() = user_id
+    OR auth.uid() IS NULL
+    OR EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.is_admin = true)
+    )
+  );
+
+CREATE POLICY "Admins can update all tickets"
+  ON public.support_tickets FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.is_admin = true)
+    )
+  );
 
 
 -- SYSTEM SETTINGS POLICIES
