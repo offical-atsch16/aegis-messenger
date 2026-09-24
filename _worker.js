@@ -667,19 +667,20 @@ export default {
 
         if (request.method === 'PATCH' || request.method === 'POST') {
           const body = await request.json();
-          const { ticket_id, user_number, status } = body;
+          const { ticket_id, user_number, status, reply_message } = body;
 
-          const updateStatus = status;
           let targetUserNumber = user_number;
-
           if (!targetUserNumber && ticket_id) {
             targetUserNumber = ticket_id;
           }
 
-          if (!targetUserNumber || !updateStatus) {
-            return new Response(JSON.stringify({ error: 'user_number/ticket_id und status erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          if (!targetUserNumber) {
+            return new Response(JSON.stringify({ error: 'user_number oder ticket_id erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
           }
 
+          const updateStatus = status || 'in_progress';
+
+          // Update support ticket status
           const upsertRes = await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
             method: 'POST',
             headers: {
@@ -695,7 +696,31 @@ export default {
           });
 
           const resData = await upsertRes.json();
-          return new Response(JSON.stringify(resData), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
+
+          // If admin provided a reply_message, send message from 11111111 to user_number
+          if (reply_message && typeof reply_message === 'string') {
+            const msgInsertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
+              method: 'POST',
+              headers: getServiceRoleHeaders(),
+              body: JSON.stringify({
+                sender_number: '11111111',
+                recipient_number: targetUserNumber,
+                encrypted_payload: reply_message
+              })
+            });
+
+            // Send push notification to user
+            const targetUserId = await resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, targetUserNumber);
+            if (targetUserId) {
+              ctx.waitUntil(sendPushNotification(env, targetUserId, {
+                title: "AegisChat Support",
+                body: "Neue Support-Antwort erhalten",
+                type: "message"
+              }, cleanBaseUrl));
+            }
+          }
+
+          return new Response(JSON.stringify({ success: true, data: resData }), { status: upsertRes.status, headers: { 'Content-Type': 'application/json' } });
         }
       }
 
@@ -1269,8 +1294,15 @@ export default {
       // 14b. SUPPORT ROUTE ENDPOINT (/api/support-route)
       if (url.pathname === '/api/support-route' && request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
-        const { sender_number, encrypted_payload } = body;
+        const { sender_number, encrypted_payload, message, user_id } = body;
         const senderNumberClean = sender_number || '11111111';
+
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+        const authUser = await verifyUserToken(token);
+        const resolvedUserId = (authUser && authUser.id) || user_id || await resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, senderNumberClean);
+
+        const msgText = message || encrypted_payload || '';
 
         const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
           method: 'POST',
@@ -1278,25 +1310,31 @@ export default {
           body: JSON.stringify({
             sender_number: senderNumberClean,
             recipient_number: '11111111',
-            encrypted_payload: encrypted_payload
+            encrypted_payload: msgText
           })
         });
 
         const resData = await insertRes.json();
 
         if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
+          const ticketObj = {
+            user_number: senderNumberClean,
+            ticket_status: 'open',
+            status: 'open',
+            message: msgText,
+            updated_at: new Date().toISOString()
+          };
+          if (resolvedUserId) {
+            ticketObj.user_id = resolvedUserId;
+          }
+
           await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
             method: 'POST',
             headers: {
               ...getServiceRoleHeaders(),
               'Prefer': 'resolution=merge-duplicates'
             },
-            body: JSON.stringify({
-              user_number: senderNumberClean,
-              ticket_status: 'open',
-              status: 'open',
-              updated_at: new Date().toISOString()
-            })
+            body: JSON.stringify(ticketObj)
           }).catch(() => {});
         }
 

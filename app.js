@@ -3059,19 +3059,20 @@ async function loadAdminSupportTickets() {
     tickets.forEach(ticket => {
       const tr = document.createElement('tr');
       const dateStr = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : '-';
+      const msgSnippet = ticket.message ? escapeHtml(ticket.message.length > 50 ? ticket.message.substring(0, 50) + '...' : ticket.message) : '<em>Keine Nachricht</em>';
+
       tr.innerHTML = `
         <td><code>${escapeHtml(ticket.user_number || ticket.id)}</code></td>
-        <td><span class="badge badge-secondary">${escapeHtml(ticket.ticket_status || 'open')}</span></td>
+        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msgSnippet}</td>
+        <td><span class="status-badge badge-${(ticket.ticket_status || ticket.status || 'open') === 'open' ? 'inactive' : 'active'}">${escapeHtml(ticket.ticket_status || ticket.status || 'open')}</span></td>
         <td>${dateStr}</td>
-        <td>
-          <select class="form-control form-control-sm ticket-status-select" data-ticket-id="${ticket.id}">
-            <option value="open" ${ticket.ticket_status === 'open' ? 'selected' : ''}>Offen</option>
-            <option value="in_progress" ${ticket.ticket_status === 'in_progress' ? 'selected' : ''}>In Bearbeitung</option>
-            <option value="resolved" ${ticket.ticket_status === 'resolved' ? 'selected' : ''}>Gelöst</option>
+        <td style="display: flex; gap: 4px; align-items: center;">
+          <select class="burner-select ticket-status-select" data-ticket-id="${ticket.id}" data-user-number="${escapeHtml(ticket.user_number)}" style="padding: 4px; font-size: 11px;">
+            <option value="open" ${(ticket.ticket_status || ticket.status) === 'open' ? 'selected' : ''}>Offen</option>
+            <option value="in_progress" ${(ticket.ticket_status || ticket.status) === 'in_progress' ? 'selected' : ''}>In Bearbeitung</option>
+            <option value="resolved" ${(ticket.ticket_status || ticket.status) === 'resolved' ? 'selected' : ''}>Gelöst</option>
           </select>
-        </td>
-        <td>
-          <button class="btn btn-sm btn-primary open-support-chat-btn" data-user-number="${escapeHtml(ticket.user_number)}">Chat öffnen</button>
+          <button class="btn primary-btn open-support-reply-btn" style="padding: 4px 8px; font-size: 11px; width: auto;" data-user-number="${escapeHtml(ticket.user_number)}">Antworten / Chat</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -3081,28 +3082,45 @@ async function loadAdminSupportTickets() {
     tbody.querySelectorAll('.ticket-status-select').forEach(select => {
       select.onchange = async (e) => {
         const ticketId = e.target.dataset.ticketId;
+        const userNum = e.target.dataset.userNumber;
         const newStatus = e.target.value;
         try {
           const updateRes = await fetchWithAuth('/api/admin/support/tickets', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticket_id: ticketId, status: newStatus })
+            body: JSON.stringify({ ticket_id: ticketId, user_number: userNum, status: newStatus })
           });
           if (!updateRes.ok) throw new Error('Status-Update fehlgeschlagen');
-          showNotification('Ticket-Status aktualisiert', 'success');
+          showToast('Ticket-Status aktualisiert');
         } catch (err) {
-          showNotification(err.message, 'error');
+          showToast(err.message, true);
         }
       };
     });
 
-    // Add event listeners for open chat
-    tbody.querySelectorAll('.open-support-chat-btn').forEach(btn => {
+    // Add event listeners for open chat / reply
+    tbody.querySelectorAll('.open-support-reply-btn').forEach(btn => {
       btn.onclick = (e) => {
         const userNum = e.target.dataset.userNumber;
         if (userNum) {
-          closeModal('admin-modal');
-          openDirectChat(userNum);
+          const replyText = prompt(`Antwort an Support-Ticket ${userNum} eingeben (oder Leerlassen, um nur Chat zu öffnen):`);
+          if (replyText !== null) {
+            if (replyText.trim().length > 0) {
+              fetchWithAuth('/api/admin/support/tickets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  user_number: userNum,
+                  status: 'in_progress',
+                  reply_message: replyText.trim()
+                })
+              }).then(res => {
+                if (res.ok) showToast(`Antwort an Nutzer ${userNum} gesendet!`);
+              }).catch(() => {});
+            }
+            closeModal('admin-dashboard-modal');
+            openDirectChat(userNum);
+          }
         }
       };
     });
@@ -3603,11 +3621,15 @@ async function addOrResolveContact(rawNumber) {
   let peerPubKeyObj = null;
   let sharedKey = null;
 
-  try {
-    peerPubKeyObj = await importPublicKey(data.public_key);
-    sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
-  } catch (e) {
-    throw new Error("Public Key nicht verfügbar");
+  const isSupportNumber = targetNumber === '11111111' || targetNumber === '00000000' || cleanNumber === '11111111' || cleanNumber === '00000000';
+
+  if (!isSupportNumber) {
+    try {
+      peerPubKeyObj = await importPublicKey(data.public_key);
+      sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerPubKeyObj);
+    } catch (e) {
+      throw new Error("Public Key nicht verfügbar");
+    }
   }
 
   const initialNickname = (data.share_profile && data.display_name) ? data.display_name : (data.isSupport ? 'Offizieller Support' : null);
@@ -4124,7 +4146,47 @@ async function handleSendMessage(e) {
   try {
     const senderNumber = document.getElementById('send-as-select').value || currentUser.main_number;
     const recipientNumber = activeContact.number;
+    const isSupportRecipient = recipientNumber === '11111111' || recipientNumber === '00000000';
     let payloadText = text;
+
+    if (isSupportRecipient) {
+      // Direct Support Route handling (Ticket creation & routing)
+      const res = await fetch('/api/support-route', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+        },
+        body: JSON.stringify({
+          sender_number: senderNumber,
+          message: payloadText,
+          encrypted_payload: payloadText,
+          user_id: currentUser ? currentUser.id : null
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Fehler beim Senden der Support-Nachricht.');
+      }
+
+      const msgObj = {
+        id: generate8DigitId(),
+        sender_number: senderNumber,
+        recipient_number: recipientNumber,
+        text: payloadText,
+        type: 'own',
+        timestamp: Date.now(),
+        status: 'sent'
+      };
+
+      appendMessageUI(msgObj, true);
+      saveChatMessage(recipientNumber, msgObj);
+      input.value = '';
+      clearSelectedFile();
+      playSoundFeedback('send');
+      showToast('🎫 Support-Ticket gesendet!');
+      return;
+    }
 
     if (selectedFile) {
       if (progressContainer) progressContainer.classList.remove('hidden');
@@ -4287,7 +4349,8 @@ function appendMessageUI(msgObj, isNew = false) {
   }
 
   const senderMeta = msgObj.type === 'own' ? `An: ${msgObj.recipient_number}` : `Von: ${msgObj.sender_number}`;
-  const tickIcon = msgObj.type === 'own' ? '<span class="msg-tick" title="Verschlüsselt gesendet">✓✓</span>' : '';
+  const isSupportMsg = msgObj.recipient_number === '11111111' || msgObj.sender_number === '11111111';
+  const tickIcon = msgObj.type === 'own' ? (isSupportMsg ? '<span class="msg-tick" title="Ticket gesendet">🎫 Ticket gesendet</span>' : '<span class="msg-tick" title="Verschlüsselt gesendet">✓✓</span>') : '';
   const timerBadge = msgObj.expiresAt ? '<span style="font-size: 10px; margin-right: 4px;" title="Selbstzerstörung aktiv">⏱️</span>' : '';
 
   let messageContentHtml = '';
