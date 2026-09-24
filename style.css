@@ -2747,3 +2747,33 @@ input:checked + .slider:before {
     width: 100%;
   }
 }
+
+/* DYNAMIC WATERMARK OVERLAY (ANTI-LEAK PROTECTION) */
+.chat-watermark-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.chat-watermark-text {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.12);
+  text-shadow: 0 0 8px rgba(6, 182, 212, 0.15);
+  white-space: nowrap;
+  animation: floatingWatermark 18s ease-in-out infinite alternate;
+  letter-spacing: 1px;
+}
+
+@keyframes floatingWatermark {
+  0% { transform: translate(-25%, -25%) rotate(-22deg); }
+  50% { transform: translate(25%, 25%) rotate(-22deg); }
+  100% { transform: translate(-25%, -25%) rotate(-22deg); }
+}

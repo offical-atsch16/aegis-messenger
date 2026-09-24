@@ -483,6 +483,9 @@
           <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto anhängen">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
+          <button type="button" id="stego-btn" class="icon-btn stego-btn" title="Steganografie-Modus (Nachricht in Bild verstecken)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><circle cx="7.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="12" cy="7.5" r=".5" fill="currentColor"/><circle cx="16.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="15.5" cy="15.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="15.5" r=".5" fill="currentColor"/></svg>
+          </button>
           <button type="button" id="view-once-toggle-btn" class="icon-btn view-once-btn" title="View Once (Einmal-Ansicht aktivieren / deaktivieren)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-size="12" font-weight="800" text-anchor="middle" fill="currentColor" stroke="none">1</text></svg>
           </button>
@@ -942,6 +945,58 @@
               <option value="off">Deaktiviert (AegisChat Messenger)</option>
               <option value="calculator">🧮 Taschenrechner</option>
               <option value="notes">📝 Meine Notizen</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- CARD: HIGH-END SICHERHEIT & SEITENKANAL-SCHUTZ -->
+        <div class="settings-card-segment">
+          <div class="settings-segment-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="12" r="3"/></svg>
+            <h4>High-End Sicherheit & Seitenkanal-Schutz</h4>
+          </div>
+
+          <div class="admin-toggle-row">
+            <div class="admin-toggle-info">
+              <span style="font-weight: 600; font-size: 13px;">Dynamic Message Padding</span>
+              <p class="settings-desc">Füllt jede Nachricht vor der Verschlüsselung auf eine feste Einheitsgröße auf (Seitenkanal-Schutz gegen Paketgrößen-Analyse).</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-padding-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="admin-toggle-row">
+            <div class="admin-toggle-info">
+              <span style="font-weight: 600; font-size: 13px;">Dummy-Traffic aktivieren</span>
+              <p class="settings-desc">Sendet in zufälligen Intervallen verschlüsseltes Rauschen, um Chat-Aktivitätsmuster für externe Beobachter unkenntlich zu machen.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-dummy-traffic-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="admin-toggle-row">
+            <div class="admin-toggle-info">
+              <span style="font-weight: 600; font-size: 13px;">Dynamisches Wasserzeichen im Chat (Anti-Leak Schutz)</span>
+              <p class="settings-desc">Zeigt ein leicht transparentes, sich langsam bewegendes Wasserzeichen mit User-ID und Zeitstempel im Chatfenster an.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="settings-watermark-toggle">
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-top: 8px; margin-bottom: 0;">
+            <label for="settings-deadmans-select">Dead Man's Switch (Inaktivitäts-Selbstzerstörung)</label>
+            <p class="settings-desc" style="margin-bottom: 8px;">Löscht automatisch und unwiderruflich alle lokalen Schlüssel & Daten, wenn die App innerhalb des Zeitraums nicht geöffnet wird.</p>
+            <select id="settings-deadmans-select" class="sender-dropdown" style="width: 100%;">
+              <option value="off">Deaktiviert</option>
+              <option value="24h">24 Stunden</option>
+              <option value="48h">48 Stunden</option>
+              <option value="7d">7 Tage</option>
             </select>
           </div>
         </div>

@@ -1304,13 +1304,345 @@ async function decryptPrivateKey(encryptedDataStr, password) {
   );
 }
 
+// --- HIGH-END SECURITY: STEGANOGRAPHY (COVERT IMAGE MESSAGING) ---
+
+async function encodeStegoImage(imageElement, secretText, sharedKey) {
+  const encryptedPayload = await encryptPayload(secretText, sharedKey);
+  const stegoPayloadStr = 'AEGIS_STEGO:' + encryptedPayload;
+
+  const enc = new TextEncoder();
+  const payloadBytes = enc.encode(stegoPayloadStr);
+  const payloadLen = payloadBytes.length;
+
+  const totalBytes = new Uint8Array(4 + payloadLen);
+  const view = new DataView(totalBytes.buffer);
+  view.setUint32(0, payloadLen, false);
+  totalBytes.set(payloadBytes, 4);
+
+  const bits = [];
+  for (let i = 0; i < totalBytes.length; i++) {
+    const byte = totalBytes[i];
+    for (let bitIndex = 7; bitIndex >= 0; bitIndex--) {
+      bits.push((byte >> bitIndex) & 1);
+    }
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = imageElement.naturalWidth || imageElement.width;
+  canvas.height = imageElement.naturalHeight || imageElement.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(imageElement, 0, 0);
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = imgData.data;
+
+  const availableRgbChannels = Math.floor(pixels.length * 0.75);
+  if (bits.length > availableRgbChannels) {
+    throw new Error('Das gewählte Bild ist zu klein für diese Geheimbotschaft.');
+  }
+
+  let bitIdx = 0;
+  for (let i = 0; i < pixels.length && bitIdx < bits.length; i++) {
+    if ((i + 1) % 4 === 0) continue;
+    pixels[i] = (pixels[i] & 0xFE) | bits[bitIdx++];
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Erzeugen des Steganografie-Bildes fehlgeschlagen.'));
+    }, 'image/png');
+  });
+}
+
+async function decodeStegoFromCanvas(canvas, sharedKey) {
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = imgData.data;
+
+  let bits = [];
+  let headerBytes = new Uint8Array(4);
+
+  let pIdx = 0;
+  while (pIdx < pixels.length && bits.length < 32) {
+    if ((pIdx + 1) % 4 === 0) { pIdx++; continue; }
+    bits.push(pixels[pIdx] & 1);
+    pIdx++;
+  }
+
+  if (bits.length < 32) return null;
+
+  for (let i = 0; i < 4; i++) {
+    let byteVal = 0;
+    for (let b = 0; b < 8; b++) {
+      byteVal = (byteVal << 1) | bits[i * 8 + b];
+    }
+    headerBytes[i] = byteVal;
+  }
+
+  const view = new DataView(headerBytes.buffer);
+  const payloadLen = view.getUint32(0, false);
+
+  if (payloadLen <= 0 || payloadLen > 500000) return null;
+
+  const targetBits = payloadLen * 8;
+  bits = [];
+
+  while (pIdx < pixels.length && bits.length < targetBits) {
+    if ((pIdx + 1) % 4 === 0) { pIdx++; continue; }
+    bits.push(pixels[pIdx] & 1);
+    pIdx++;
+  }
+
+  if (bits.length < targetBits) return null;
+
+  const payloadBytes = new Uint8Array(payloadLen);
+  for (let i = 0; i < payloadLen; i++) {
+    let byteVal = 0;
+    for (let b = 0; b < 8; b++) {
+      byteVal = (byteVal << 1) | bits[i * 8 + b];
+    }
+    payloadBytes[i] = byteVal;
+  }
+
+  const decodedStr = new TextDecoder().decode(payloadBytes);
+  if (!decodedStr.startsWith('AEGIS_STEGO:')) return null;
+
+  const encryptedPayloadStr = decodedStr.slice('AEGIS_STEGO:'.length);
+  return await decryptPayload(encryptedPayloadStr, sharedKey);
+}
+
+async function tryDecodeStegoFromImgElement(imgElement, sharedKey) {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = imgElement.naturalWidth || imgElement.width;
+    canvas.height = imgElement.naturalHeight || imgElement.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgElement, 0, 0);
+    return await decodeStegoFromCanvas(canvas, sharedKey);
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- HIGH-END SECURITY: DEAD MAN'S SWITCH (INACTIVITY AUTO-DESTRUCTION) ---
+
+function recordAppActivity() {
+  localStorage.setItem('aegis_last_active_time', Date.now().toString());
+}
+
+function getDeadMansTimeoutMs(val) {
+  if (val === '24h') return 24 * 3600 * 1000;
+  if (val === '48h') return 48 * 3600 * 1000;
+  if (val === '7d') return 7 * 24 * 3600 * 1000;
+  return 0;
+}
+
+function checkDeadMansSwitch() {
+  const settingVal = localStorage.getItem('aegis_deadmans_timeout') || 'off';
+  const timeoutMs = getDeadMansTimeoutMs(settingVal);
+  if (timeoutMs <= 0) return;
+
+  const lastActiveStr = localStorage.getItem('aegis_last_active_time');
+  if (!lastActiveStr) {
+    recordAppActivity();
+    return;
+  }
+
+  const lastActiveTime = parseInt(lastActiveStr, 10);
+  const elapsed = Date.now() - lastActiveTime;
+
+  if (elapsed > timeoutMs) {
+    executeDeadMansWipe(settingVal);
+  }
+}
+
+function executeDeadMansWipe(settingVal) {
+  clearSessionData();
+  localStorage.clear();
+  alert(`🚨 Dead Man's Switch: Inaktivitäts-Timer (${settingVal}) abgelaufen!\n\nAlle lokalen Schlüssel, Kontakte und gespeicherten Daten wurden automatisch und unwiderruflich gelöscht.`);
+  location.reload();
+}
+
+function setupDeadMansSwitchActivityListeners() {
+  const events = ['mousemove', 'keydown', 'touchstart', 'focus', 'click'];
+  let throttleTimer = null;
+  events.forEach(evt => {
+    window.addEventListener(evt, () => {
+      if (!throttleTimer) {
+        recordAppActivity();
+        throttleTimer = setTimeout(() => { throttleTimer = null; }, 10000);
+      }
+    });
+  });
+  recordAppActivity();
+  checkDeadMansSwitch();
+  setInterval(checkDeadMansSwitch, 60000);
+}
+
+// --- HIGH-END SECURITY: DYNAMIC WATERMARK (ANTI-LEAK PROTECTION) ---
+
+let watermarkTimerInterval = null;
+
+function isWatermarkEnabled() {
+  return localStorage.getItem('aegis_watermark_enabled') === 'true';
+}
+
+function updateWatermarkUI() {
+  const chatViewport = document.querySelector('.chat-viewport');
+  if (!chatViewport) return;
+
+  let overlay = document.getElementById('chat-watermark-overlay');
+
+  if (!isWatermarkEnabled() || !currentUser) {
+    if (overlay) overlay.remove();
+    if (watermarkTimerInterval) {
+      clearInterval(watermarkTimerInterval);
+      watermarkTimerInterval = null;
+    }
+    return;
+  }
+
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'chat-watermark-overlay';
+    overlay.className = 'chat-watermark-overlay';
+    const textSpan = document.createElement('div');
+    textSpan.id = 'chat-watermark-text';
+    textSpan.className = 'chat-watermark-text';
+    overlay.appendChild(textSpan);
+    chatViewport.appendChild(overlay);
+  }
+
+  const renderWatermarkText = () => {
+    const textSpan = document.getElementById('chat-watermark-text');
+    if (!textSpan) return;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('de-DE');
+    textSpan.textContent = `🔒 ${currentUser.username} (ID: ${currentUser.main_number}) • ${dateStr} ${timeStr} • CONFIDENTIAL`;
+  };
+
+  renderWatermarkText();
+
+  if (!watermarkTimerInterval) {
+    watermarkTimerInterval = setInterval(renderWatermarkText, 1000);
+  }
+}
+
+// --- HIGH-END SECURITY: DYNAMIC MESSAGE PADDING & DUMMY TRAFFIC ---
+
+let dummyTrafficTimer = null;
+
+function isMessagePaddingEnabled() {
+  return localStorage.getItem('aegis_padding_enabled') === 'true';
+}
+
+function padMessagePayload(text) {
+  if (!isMessagePaddingEnabled()) return text;
+
+  const enc = new TextEncoder();
+  const initialBytes = enc.encode(text).length;
+  let targetSize = 2048;
+  while (targetSize <= initialBytes + 100) {
+    targetSize += 1024;
+  }
+
+  const baseObj = { type: 'padded_msg', payload: text, pad: '' };
+  const baseLength = enc.encode(JSON.stringify(baseObj)).length;
+  const padNeeded = Math.max(0, targetSize - baseLength);
+
+  const padChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let padStr = '';
+  for (let i = 0; i < padNeeded; i++) {
+    padStr += padChars.charAt(Math.floor(Math.random() * padChars.length));
+  }
+
+  baseObj.pad = padStr;
+  return JSON.stringify(baseObj);
+}
+
+function unpadMessagePayload(decryptedStr) {
+  try {
+    if (decryptedStr && decryptedStr.startsWith('{')) {
+      const parsed = JSON.parse(decryptedStr);
+      if (parsed && parsed.type === 'padded_msg' && parsed.payload !== undefined) {
+        return parsed.payload;
+      }
+    }
+  } catch (e) {}
+  return decryptedStr;
+}
+
+function isDummyTrafficEnabled() {
+  return localStorage.getItem('aegis_dummy_traffic_enabled') === 'true';
+}
+
+function startDummyTrafficTimer() {
+  stopDummyTrafficTimer();
+  if (!isDummyTrafficEnabled()) return;
+
+  const scheduleNextDummy = () => {
+    const delay = Math.floor(20000 + Math.random() * 30000);
+    dummyTrafficTimer = setTimeout(async () => {
+      if (currentUser && accessToken && localKeyPair) {
+        try {
+          await sendDummyTrafficNoise();
+        } catch (e) {}
+      }
+      if (isDummyTrafficEnabled()) {
+        scheduleNextDummy();
+      }
+    }, delay);
+  };
+
+  scheduleNextDummy();
+}
+
+function stopDummyTrafficTimer() {
+  if (dummyTrafficTimer) {
+    clearTimeout(dummyTrafficTimer);
+    dummyTrafficTimer = null;
+  }
+}
+
+async function sendDummyTrafficNoise() {
+  if (!currentUser || !localKeyPair) return;
+  const myNumber = document.getElementById('send-as-select')?.value || currentUser.main_number;
+
+  const dummyPayloadText = JSON.stringify({
+    type: 'dummy_traffic',
+    noise: Array.from(window.crypto.getRandomValues(new Uint8Array(128)))
+      .map(b => b.toString(16).padStart(2, '0')).join('')
+  });
+
+  const selfSharedKey = await deriveSharedAesKey(localKeyPair.privateKey, localKeyPair.publicKey);
+  const encryptedPayloadStr = await encryptPayload(dummyPayloadText, selfSharedKey);
+
+  fetch('/api/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+    },
+    body: JSON.stringify({
+      sender_number: myNumber,
+      recipient_number: myNumber,
+      encrypted_payload: encryptedPayloadStr
+    })
+  }).catch(() => {});
+}
+
 async function encryptPayload(text, sharedKey) {
+  const paddedText = padMessagePayload(text);
   const enc = new TextEncoder();
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const ciphertextBuffer = await window.crypto.subtle.encrypt(
     { name: "AES-GCM", iv: iv },
     sharedKey,
-    enc.encode(text)
+    enc.encode(paddedText)
   );
 
   return JSON.stringify({
@@ -1334,7 +1666,8 @@ async function decryptPayload(payloadJsonStr, sharedKey) {
     ciphertextBytes.buffer
   );
 
-  return new TextDecoder().decode(decryptedBuffer);
+  const rawText = new TextDecoder().decode(decryptedBuffer);
+  return unpadMessagePayload(rawText);
 }
 
 // --- BACKEND HEALTH & PUBLIC SETTINGS CHECK ---
