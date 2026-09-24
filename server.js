@@ -48,23 +48,44 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.url.startsWith('/api/auth/login')) {
-      const mockPrivKey = JSON.stringify({
-        encryptedJwkB64: "eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6InhYWFgiLCJ5IjoieVlZWSIHeading==",
-        saltB64: "TVRJeE1UVXpORFVtTkRneE1USTE=",
-        ivB64: "TVRJeE1UVXpORFVt"
-      });
       res.end(JSON.stringify({
         user: { id: "11111111-1111-1111-1111-111111111111", username: "arien", main_number: "88888888" },
-        profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: mockPrivKey, public_key: "eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6ImFiYyIsInkiOiJkZWYifQ==", is_admin: true, share_profile: true },
+        profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: null, public_key: null, is_admin: true, share_profile: true },
         access_token: "mock_token"
       }));
       return;
     }
+    if (req.url.startsWith('/api/admin/support/tickets')) {
+      res.end(JSON.stringify([
+        {
+          id: '1',
+          user_number: '88888888',
+          ticket_status: 'open',
+          status: 'open',
+          updated_at: new Date().toISOString()
+        }
+      ]));
+      return;
+    }
     if (req.url.startsWith('/api/profiles/resolve')) {
+      const fallbackJwkB64 = 'eyJrZXlfb3BzIjpbXSwiZXh0Ijp0cnVlLCJrdHkiOiJFQyIsIngiOiJYc0hhR0pDQUI2MWpkZFV3MTh4Q0MxU2czanpHVmlYcURzeVZwZ0NaYWFnIiwieSI6IjgwMGRzNkNpVU83S0ticC14dEJkRDJESy1ibXFnaDVCMlNMLWs5bDhoc0kiLCJjcnYiOiJQLTI1NiJ9';
+      if (req.url.includes('11111111') || req.url.includes('00000000') || req.url.includes('support') || req.url.includes('111111')) {
+        res.end(JSON.stringify({
+          number: '11111111',
+          username: 'support',
+          public_key: fallbackJwkB64,
+          display_name: 'Offizieller Support',
+          share_profile: true,
+          isSupport: true,
+          is_disabled: false,
+          isBurner: false
+        }));
+        return;
+      }
       res.end(JSON.stringify({
         number: "88888888",
         username: "arien",
-        public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE",
+        public_key: fallbackJwkB64,
         display_name: "Arien Founder",
         share_profile: true,
         isBurner: false
