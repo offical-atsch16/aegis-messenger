@@ -175,7 +175,7 @@ async function fetchAndDecryptFileBlob(fileUrl, sharedKey, mimeType) {
 
 function generateForensicSessionHash() {
   if (!currentUser) return 'AEGIS-PROTECTED-SESSION';
-  const number = currentUser.main_number || '00000000';
+  const number = currentUser.main_number || '11111111';
   const now = new Date();
   const timeStr = `${now.getHours()}:${now.getMinutes() < 10 ? '0' : ''}${now.getMinutes()}`;
   return `AEGIS • ID:${number} • ${timeStr} • CONFIDENTIAL`;
@@ -2613,14 +2613,42 @@ async function handleLogin() {
       throw new Error(data.error || 'Anmeldung fehlgeschlagen.');
     }
 
-    const privateKey = await decryptPrivateKey(data.profile.encrypted_private_key, password);
-    const publicKey = await importPublicKey(data.profile.public_key);
+    let privateKey = null;
+    let publicKey = null;
+    let pubKeyB64 = data.profile.public_key;
+
+    if (!pubKeyB64 || !data.profile.encrypted_private_key) {
+      // Keypair missing on profile, generate fresh keypair and upload public key
+      const keyPair = await generateEcdhKeyPair();
+      pubKeyB64 = await exportPublicKey(keyPair.publicKey);
+      const encryptedPrivateKeyStr = await encryptPrivateKey(keyPair.privateKey, password);
+      privateKey = keyPair.privateKey;
+      publicKey = keyPair.publicKey;
+
+      // Update profile with missing keys
+      await fetch('/api/profiles/update', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${data.access_token}`
+        },
+        body: JSON.stringify({
+          public_key: pubKeyB64,
+          encrypted_private_key: encryptedPrivateKeyStr
+        })
+      });
+      data.profile.public_key = pubKeyB64;
+      data.profile.encrypted_private_key = encryptedPrivateKeyStr;
+    } else {
+      privateKey = await decryptPrivateKey(data.profile.encrypted_private_key, password);
+      publicKey = await importPublicKey(data.profile.public_key);
+    }
 
     currentUser = data.user;
     userProfile = data.profile;
     accessToken = data.access_token;
     localKeyPair = { publicKey, privateKey };
-    localPubKeyB64 = data.profile.public_key;
+    localPubKeyB64 = pubKeyB64;
 
     await saveSessionData();
     document.getElementById('login-modal').classList.add('hidden');
@@ -3545,7 +3573,7 @@ async function handleAddContact() {
 
 async function addOrResolveContact(rawNumber) {
   let cleanNumber = String(rawNumber).trim();
-  if (cleanNumber === '000000') cleanNumber = '00000000';
+  if (cleanNumber === '111111' || cleanNumber === '000000') cleanNumber = '11111111';
 
   let existing = contacts.find(c => c.number === cleanNumber || (c.username && c.username.toLowerCase() === cleanNumber.toLowerCase()));
   if (existing) {
@@ -3597,10 +3625,10 @@ async function addOrResolveContact(rawNumber) {
 function checkUrlRouteRedirect() {
   const path = window.location.pathname;
   const urlParams = new URLSearchParams(window.location.search);
-  const targetId = urlParams.get('id') || (path === '/support' ? '00000000' : null);
+  const targetId = urlParams.get('id') || (path === '/support' ? '11111111' : null);
 
   if (targetId && currentUser) {
-    const cleanId = targetId === '000000' ? '00000000' : targetId;
+    const cleanId = (targetId === '111111' || targetId === '000000') ? '11111111' : targetId;
     addOrResolveContact(cleanId).then(contact => {
       if (contact) {
         selectContact(contact);
@@ -3679,7 +3707,7 @@ function selectContact(contact) {
     document.getElementById('sidebar').classList.add('mobile-hidden');
   }
 
-  const isSupportChat = contact.number === '00000000';
+  const isSupportChat = contact.number === '11111111' || contact.number === '00000000';
   const supportBanner = document.getElementById('support-disclaimer-banner');
   if (supportBanner) {
     if (isSupportChat) {
@@ -3689,7 +3717,7 @@ function selectContact(contact) {
     }
   }
 
-  const displayName = isSupportChat ? 'Offizieller Support (00000000)' : (contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`);
+  const displayName = isSupportChat ? 'Offizieller Support (11111111)' : (contact.nickname ? `${contact.nickname} (${contact.number})` : `Chat ID: ${contact.number}`);
   const founderBadge = getFounderBadgeHtml(contact.username || contact.nickname || '');
   const supportBadge = isSupportChat ? '<span class="badge-supporter">🛡️ Support</span>' : '';
 

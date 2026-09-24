@@ -1135,7 +1135,7 @@ export default {
           if (!profRes.ok || !profList || profList.length === 0) {
             return new Response(JSON.stringify({ error: 'Kein Profil zu dieser Haupt-ID gefunden.' }), { status: 404 });
           }
-          if (profList[0].is_disabled && identifier !== '00000000') {
+          if (profList[0].is_disabled && identifier !== '11111111' && identifier !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert. Bitte kontaktiere den Support oder reaktiviere es.' }), { status: 403 });
           }
           resolvedUsername = profList[0].username;
@@ -1167,7 +1167,7 @@ export default {
           return new Response(JSON.stringify({ error: 'Nutzerprofil nicht gefunden.' }), { status: 404 });
         }
 
-        if (profileData[0].is_disabled && profileData[0].main_number !== '00000000') {
+        if (profileData[0].is_disabled && profileData[0].main_number !== '11111111' && profileData[0].main_number !== '00000000') {
           return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
 
@@ -1262,21 +1262,21 @@ export default {
       if (url.pathname === '/api/support-route' && request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
         const { sender_number, encrypted_payload } = body;
-        const senderNumberClean = sender_number || '00000000';
+        const senderNumberClean = sender_number || '11111111';
 
         const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
           method: 'POST',
           headers: getServiceRoleHeaders(),
           body: JSON.stringify({
             sender_number: senderNumberClean,
-            recipient_number: '00000000',
+            recipient_number: '11111111',
             encrypted_payload: encrypted_payload
           })
         });
 
         const resData = await insertRes.json();
 
-        if (senderNumberClean && senderNumberClean !== '00000000') {
+        if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
           await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
             method: 'POST',
             headers: {
@@ -1307,9 +1307,9 @@ export default {
 
         const cleanSearch = rawSearch.trim();
 
-        // Support channel special system profile (000000 or 00000000)
-        if (cleanSearch === '000000' || cleanSearch === '00000000' || cleanSearch.toLowerCase() === 'support') {
-          const suppRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.00000000&select=public_key,display_name,avatar_url,share_profile,is_disabled,username`, {
+        // Support channel special system profile (111111, 11111111, 000000, 00000000 or support)
+        if (cleanSearch === '111111' || cleanSearch === '11111111' || cleanSearch === '000000' || cleanSearch === '00000000' || cleanSearch.toLowerCase() === 'support') {
+          const suppRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?main_number=eq.11111111&select=public_key,display_name,avatar_url,share_profile,is_disabled,username`, {
             headers: getSupabaseHeaders()
           });
           const suppData = await suppRes.json();
@@ -1317,7 +1317,7 @@ export default {
           if (suppRes.ok && Array.isArray(suppData) && suppData.length > 0 && suppData[0].public_key) {
             const supp = suppData[0];
             return new Response(JSON.stringify({
-              number: '00000000',
+              number: '11111111',
               username: supp.username || 'support',
               public_key: supp.public_key,
               display_name: supp.display_name || 'Offizieller Support',
@@ -1333,7 +1333,7 @@ export default {
           const fallbackJwkB64 = 'eyJrZXlfb3BzIjpbXSwiZXh0Ijp0cnVlLCJrdHkiOiJFQyIsIngiOiJYc0hhR0pDQUI2MWpkZFV3MTh4Q0MxU2czanpHVmlYcURzeVZwZ0NaYWFnIiwieSI6IjgwMGRzNkNpVU83S0ticC14dEJkRDJESy1ibXFnaDVCMlNMLWs5bDhoc0kiLCJjcnYiOiJQLTI1NiJ9';
 
           return new Response(JSON.stringify({
-            number: '00000000',
+            number: '11111111',
             username: 'support',
             public_key: fallbackJwkB64,
             display_name: 'Offizieller Support',
@@ -1358,8 +1358,8 @@ export default {
 
         if (profRes.ok && profData && profData.length > 0) {
           const profile = profData[0];
-          // Support ID 00000000 is never disabled
-          if (profile.is_disabled && profile.main_number !== '00000000') {
+          // Support ID 11111111 is never disabled
+          if (profile.is_disabled && profile.main_number !== '11111111' && profile.main_number !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dieses Konto ist deaktiviert.' }), { status: 403 });
           }
           const isShared = profile.share_profile !== false;
@@ -1374,7 +1374,7 @@ export default {
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
-        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${number}&active=eq.true&select=user_id,expires_at,profiles(public_key,display_name,avatar_url,share_profile,is_disabled,username)`, {
+        const burnerRes = await fetch(`${cleanBaseUrl}/rest/v1/disposable_numbers?burner_number=eq.${encodeURIComponent(cleanSearch)}&active=eq.true&select=user_id,expires_at,profiles(public_key,display_name,avatar_url,share_profile,is_disabled,username)`, {
           headers: getSupabaseHeaders()
         });
         const burnerData = await burnerRes.json();
@@ -1390,7 +1390,7 @@ export default {
           if (burner.profiles && burner.profiles.public_key) {
             const isShared = burner.profiles.share_profile !== false;
             return new Response(JSON.stringify({
-              number: number,
+              number: cleanSearch,
               username: burner.profiles.username,
               public_key: burner.profiles.public_key,
               display_name: isShared ? (burner.profiles.display_name || null) : null,

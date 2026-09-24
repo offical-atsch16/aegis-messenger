@@ -17,7 +17,7 @@ export async function onRequestPost(context) {
 
     const cleanBaseUrl = supabaseUrl.replace(/\/+$/, '');
 
-    const senderNumberClean = sender_number || '00000000';
+    const senderNumberClean = sender_number || '11111111';
 
     const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
       method: 'POST',
@@ -29,7 +29,7 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         sender_number: senderNumberClean,
-        recipient_number: '00000000',
+        recipient_number: '11111111',
         encrypted_payload: encrypted_payload
       })
     });
@@ -37,7 +37,7 @@ export async function onRequestPost(context) {
     const resData = await insertRes.json();
 
     // Ensure a support ticket record exists/updates for the user without error
-    if (senderNumberClean && senderNumberClean !== '00000000') {
+    if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
       await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
         method: 'POST',
         headers: {

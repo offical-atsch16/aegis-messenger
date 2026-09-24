@@ -40,7 +40,7 @@ const server = http.createServer((req, res) => {
           ciphertext: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE"
         });
         res.end(JSON.stringify({
-          user: { id: "00000000-0000-0000-0000-000000000000", username: "user123", main_number: "88888888" },
+          user: { id: "11111111-1111-1111-1111-111111111111", username: "user123", main_number: "88888888" },
           profile: { username: "user123", main_number: "88888888", display_name: "User 123", encrypted_private_key: mockPrivKey, public_key: "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE", is_admin: false, share_profile: true },
           access_token: "mock_token"
         }));
@@ -54,7 +54,7 @@ const server = http.createServer((req, res) => {
         ivB64: "TVRJeE1UVXpORFVt"
       });
       res.end(JSON.stringify({
-        user: { id: "00000000-0000-0000-0000-000000000000", username: "arien", main_number: "88888888" },
+        user: { id: "11111111-1111-1111-1111-111111111111", username: "arien", main_number: "88888888" },
         profile: { username: "arien", main_number: "88888888", display_name: "Arien Founder", encrypted_private_key: mockPrivKey, public_key: "eyJrdHkiOiJFQyIsImNydiI6IlAtMjU2IiwieCI6ImFiYyIsInkiOiJkZWYifQ==", is_admin: true, share_profile: true },
         access_token: "mock_token"
       }));
