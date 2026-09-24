@@ -3396,7 +3396,7 @@ async function loadAdminUsers() {
 
       data.forEach(user => {
         const tr = document.createElement('tr');
-        const isFrozen = !!user.is_disabled;
+        const isFrozen = user.is_disabled === true || user.is_disabled === "true";
         const roleBadge = user.is_admin ? '<span class="status-badge badge-admin">Admin</span>' : '<span class="status-badge badge-user">Nutzer</span>';
         const statusBadge = isFrozen
           ? '<span class="status-badge badge-inactive">Eingefroren</span>'

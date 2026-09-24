@@ -478,8 +478,12 @@ export default {
         });
         if (!profRes.ok) return null;
         const profData = await profRes.json();
-        if (profData && profData.length > 0 && profData[0].is_admin && !profData[0].is_disabled) {
-          return { user: authUser, profile: profData[0] };
+        if (profData && profData.length > 0) {
+          const prof = profData[0];
+          const isUserDisabled = prof.is_disabled === true || prof.is_disabled === 'true';
+          if (prof.is_admin && !isUserDisabled) {
+            return { user: authUser, profile: prof };
+          }
         }
       } catch (e) {
         return null;
@@ -845,13 +849,15 @@ export default {
           return new Response(JSON.stringify({ error: 'user_id und is_disabled erforderlich.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
         }
 
+        const targetDisabledState = is_disabled === true || is_disabled === 'true';
+
         const updateRes = await fetch(`${cleanBaseUrl}/rest/v1/profiles?id=eq.${user_id}`, {
           method: 'PATCH',
           headers: {
             ...getSupabaseHeaders(token),
             'Prefer': 'return=representation'
           },
-          body: JSON.stringify({ is_disabled: is_disabled })
+          body: JSON.stringify({ is_disabled: targetDisabledState })
         });
 
         const updateData = await updateRes.json();
@@ -1135,7 +1141,8 @@ export default {
           if (!profRes.ok || !profList || profList.length === 0) {
             return new Response(JSON.stringify({ error: 'Kein Profil zu dieser Haupt-ID gefunden.' }), { status: 404 });
           }
-          if (profList[0].is_disabled && identifier !== '11111111' && identifier !== '00000000') {
+          const isProfDisabled = profList[0].is_disabled === true || profList[0].is_disabled === 'true';
+          if (isProfDisabled && identifier !== '11111111' && identifier !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert. Bitte kontaktiere den Support oder reaktiviere es.' }), { status: 403 });
           }
           resolvedUsername = profList[0].username;
@@ -1167,7 +1174,8 @@ export default {
           return new Response(JSON.stringify({ error: 'Nutzerprofil nicht gefunden.' }), { status: 404 });
         }
 
-        if (profileData[0].is_disabled && profileData[0].main_number !== '11111111' && profileData[0].main_number !== '00000000') {
+        const isUserDisabled = profileData[0].is_disabled === true || profileData[0].is_disabled === 'true';
+        if (isUserDisabled && profileData[0].main_number !== '11111111' && profileData[0].main_number !== '00000000') {
           return new Response(JSON.stringify({ error: 'Dein Konto ist derzeit deaktiviert.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
 
@@ -1359,7 +1367,8 @@ export default {
         if (profRes.ok && profData && profData.length > 0) {
           const profile = profData[0];
           // Support ID 11111111 is never disabled
-          if (profile.is_disabled && profile.main_number !== '11111111' && profile.main_number !== '00000000') {
+          const isProfDisabled = profile.is_disabled === true || profile.is_disabled === 'true';
+          if (isProfDisabled && profile.main_number !== '11111111' && profile.main_number !== '00000000') {
             return new Response(JSON.stringify({ error: 'Dieses Konto ist deaktiviert.' }), { status: 403 });
           }
           const isShared = profile.share_profile !== false;
@@ -1384,7 +1393,8 @@ export default {
           if (burner.expires_at && new Date(burner.expires_at) <= new Date()) {
             return new Response(JSON.stringify({ error: 'Diese Einweg-Nummer ist abgelaufen.' }), { status: 410 });
           }
-          if (burner.profiles && burner.profiles.is_disabled) {
+          const isOwnerDisabled = burner.profiles && (burner.profiles.is_disabled === true || burner.profiles.is_disabled === 'true');
+          if (isOwnerDisabled) {
             return new Response(JSON.stringify({ error: 'Inhaber-Konto ist deaktiviert.' }), { status: 403 });
           }
           if (burner.profiles && burner.profiles.public_key) {
