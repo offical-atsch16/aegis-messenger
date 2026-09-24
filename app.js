@@ -418,6 +418,41 @@ function cancelVoiceRecording() {
 
 // --- UTILITY & NOTIFICATION FUNCTIONS ---
 
+async function fetchWithAuth(url, options = {}) {
+  const headers = {
+    ...(options.headers || {})
+  };
+  if (accessToken && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
+function showNotification(message, type = 'info') {
+  const isError = type === 'error' || type === 'danger' || type === 'warning';
+  showToast(message, isError);
+}
+
+function closeModal(modalId) {
+  const modal = (modalId && document.getElementById(modalId)) || document.getElementById('admin-dashboard-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+async function openDirectChat(number) {
+  closeAdminDashboard();
+  if (!number) return;
+  try {
+    const contact = await addOrResolveContact(number);
+    if (contact) {
+      selectContact(contact);
+    }
+  } catch (err) {
+    showToast(`Chat konnte nicht geöffnet werden: ${err.message}`, true);
+  }
+}
+
 function showToast(message, isError = false) {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -3133,9 +3168,7 @@ async function refreshAdminDashboardData() {
 
 async function loadAdminStats() {
   try {
-    const res = await fetch('/api/admin/stats', {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    const res = await fetchWithAuth('/api/admin/stats');
     if (res.ok) {
       const data = await res.json();
       document.getElementById('admin-stat-users').textContent = data.activeUsers || 0;
@@ -3154,9 +3187,7 @@ async function loadAdminStats() {
 
 async function loadAdminSettings() {
   try {
-    const res = await fetch('/api/admin/settings', {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    const res = await fetchWithAuth('/api/admin/settings');
     if (res.ok) {
       const data = await res.json();
       data.forEach(item => {
@@ -3188,12 +3219,9 @@ async function loadAdminSettings() {
 async function handleToggleMaintenanceMode(e) {
   const isEnabled = e.target.checked;
   try {
-    const res = await fetch('/api/admin/settings', {
+    const res = await fetchWithAuth('/api/admin/settings', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: 'maintenance_mode',
         value: { enabled: isEnabled, message: 'Plattform befindet sich derzeit im Wartungsmodus.' }
@@ -3229,12 +3257,9 @@ async function handleSavePanicPassword() {
 async function handleToggleRequireInvite(e) {
   const isEnabled = e.target.checked;
   try {
-    const res = await fetch('/api/admin/settings', {
+    const res = await fetchWithAuth('/api/admin/settings', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: 'require_invite_code',
         value: { enabled: isEnabled }
@@ -3259,9 +3284,7 @@ async function loadAdminInvites() {
   tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Lade Einladungscodes...</td></tr>';
 
   try {
-    const res = await fetch('/api/admin/invites', {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    const res = await fetchWithAuth('/api/admin/invites');
     if (res.ok) {
       const data = await res.json();
       tbody.innerHTML = '';
@@ -3305,12 +3328,9 @@ async function handleAdminGenerateInvite() {
   }
 
   try {
-    const res = await fetch('/api/admin/invites', {
+    const res = await fetchWithAuth('/api/admin/invites', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ max_uses: maxUses })
     });
 
@@ -3330,9 +3350,8 @@ async function handleAdminGenerateInvite() {
 async function handleDeleteInvite(code) {
   if (confirm(`Code ${code} wirklich löschen?`)) {
     try {
-      const res = await fetch(`/api/admin/invites?code=${encodeURIComponent(code)}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+      const res = await fetchWithAuth(`/api/admin/invites?code=${encodeURIComponent(code)}`, {
+        method: 'DELETE'
       });
       if (res.ok) {
         showToast(`Code ${code} gelöscht.`);
@@ -3353,12 +3372,9 @@ async function handleAdminSaveBanner() {
   const bannerObj = { enabled, text, type, location };
 
   try {
-    const res = await fetch('/api/admin/settings', {
+    const res = await fetchWithAuth('/api/admin/settings', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: 'banner_config',
         value: bannerObj
@@ -3383,9 +3399,7 @@ async function loadAdminUsers() {
   tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Lade Benutzerliste...</td></tr>';
 
   try {
-    const res = await fetch('/api/admin/users', {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    const res = await fetchWithAuth('/api/admin/users');
     if (res.ok) {
       const data = await res.json();
       tbody.innerHTML = '';
@@ -3432,12 +3446,9 @@ async function handleToggleFreezeUser(userId, newDisabledState) {
   const actionText = newDisabledState ? 'einfrieren' : 'entsperren / freigeben';
   if (confirm(`Möchtest du dieses Konto wirklich ${actionText}?`)) {
     try {
-      const res = await fetch('/api/admin/users/toggle-freeze', {
+      const res = await fetchWithAuth('/api/admin/users/toggle-freeze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
           is_disabled: newDisabledState

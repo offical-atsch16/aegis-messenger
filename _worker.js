@@ -1322,7 +1322,9 @@ export default {
           });
           const suppData = await suppRes.json();
 
-          if (suppRes.ok && Array.isArray(suppData) && suppData.length > 0 && suppData[0].public_key) {
+          const fallbackJwkB64 = 'eyJrZXlfb3BzIjpbXSwiZXh0Ijp0cnVlLCJrdHkiOiJFQyIsIngiOiJYc0hhR0pDQUI2MWpkZFV3MTh4Q0MxU2czanpHVmlYcURzeVZwZ0NaYWFnIiwieSI6IjgwMGRzNkNpVU83S0ticC14dEJkRDJESy1ibXFnaDVCMlNMLWs5bDhoc0kiLCJjcnYiOiJQLTI1NiJ9';
+
+          if (suppRes.ok && Array.isArray(suppData) && suppData.length > 0 && suppData[0].public_key && suppData[0].public_key.length > 10) {
             const supp = suppData[0];
             return new Response(JSON.stringify({
               number: '11111111',
@@ -1336,9 +1338,6 @@ export default {
               isBurner: false
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
           }
-
-          // Fallback: valid static ECDH P-256 JWK Base64 public key
-          const fallbackJwkB64 = 'eyJrZXlfb3BzIjpbXSwiZXh0Ijp0cnVlLCJrdHkiOiJFQyIsIngiOiJYc0hhR0pDQUI2MWpkZFV3MTh4Q0MxU2czanpHVmlYcURzeVZwZ0NaYWFnIiwieSI6IjgwMGRzNkNpVU83S0ticC14dEJkRDJESy1ibXFnaDVCMlNMLWs5bDhoc0kiLCJjcnYiOiJQLTI1NiJ9';
 
           return new Response(JSON.stringify({
             number: '11111111',
@@ -1569,6 +1568,22 @@ export default {
             body: JSON.stringify(body)
           });
           const resData = await insertRes.json();
+
+          if (insertRes.ok && body.recipient_number === '11111111' && body.sender_number && body.sender_number !== '11111111') {
+            await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+              method: 'POST',
+              headers: {
+                ...getServiceRoleHeaders(),
+                'Prefer': 'resolution=merge-duplicates'
+              },
+              body: JSON.stringify({
+                user_number: body.sender_number,
+                ticket_status: 'open',
+                status: 'open',
+                updated_at: new Date().toISOString()
+              })
+            }).catch(() => {});
+          }
 
           if (insertRes.ok && body.recipient_number) {
             const recipientUserId = await resolveUserIdFromNumber(cleanBaseUrl, serviceRoleKey, body.recipient_number);
