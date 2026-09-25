@@ -4144,31 +4144,13 @@ async function handleSendMessage(e) {
   const progressBar = document.getElementById('upload-progress-bar');
 
   try {
-    const senderNumber = document.getElementById('send-as-select').value || currentUser.main_number;
+    const senderNumber = (document.getElementById('send-as-select') && document.getElementById('send-as-select').value) || (currentUser ? currentUser.main_number : '00000000');
     const recipientNumber = activeContact.number;
-    const isSupportRecipient = recipientNumber === '11111111' || recipientNumber === '00000000';
+    const isSupportRecipient = recipientNumber === '11111111' || recipientNumber === '00000000' || (activeContact && activeContact.isSupport);
     let payloadText = text;
 
     if (isSupportRecipient) {
-      // Direct Support Route handling (Ticket creation & routing)
-      const res = await fetch('/api/support-route', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
-        },
-        body: JSON.stringify({
-          sender_number: senderNumber,
-          message: payloadText,
-          encrypted_payload: payloadText,
-          user_id: currentUser ? currentUser.id : null
-        })
-      });
-
-      if (!res.ok) {
-        throw new Error('Fehler beim Senden der Support-Nachricht.');
-      }
-
+      // Direct Support Route handling with Optimistic Rendering & Error Handling
       const msgObj = {
         id: generate8DigitId(),
         sender_number: senderNumber,
@@ -4179,12 +4161,38 @@ async function handleSendMessage(e) {
         status: 'sent'
       };
 
+      // Optimistic Rendering: Display message in UI immediately
       appendMessageUI(msgObj, true);
       saveChatMessage(recipientNumber, msgObj);
       input.value = '';
       clearSelectedFile();
       playSoundFeedback('send');
-      showToast('🎫 Support-Ticket gesendet!');
+
+      try {
+        const res = await fetch('/api/support-route', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {})
+          },
+          body: JSON.stringify({
+            sender_number: senderNumber,
+            message: payloadText,
+            encrypted_payload: payloadText,
+            user_id: currentUser ? currentUser.id : null
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+
+        showToast('🎫 Support-Ticket gesendet!');
+      } catch (err) {
+        console.error("Error creating support ticket:", err);
+        showToast(`Fehler beim Erstellen des Support-Tickets: ${err.message || 'Netzwerkfehler'}`, true);
+      }
       return;
     }
 
