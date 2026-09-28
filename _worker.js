@@ -1306,7 +1306,10 @@ export default {
 
         const insertRes = await fetch(`${cleanBaseUrl}/rest/v1/messages`, {
           method: 'POST',
-          headers: getServiceRoleHeaders(),
+          headers: {
+            ...getServiceRoleHeaders(),
+            'Prefer': 'return=representation'
+          },
           body: JSON.stringify({
             sender_number: senderNumberClean,
             recipient_number: '11111111',
@@ -1314,7 +1317,11 @@ export default {
           })
         });
 
-        const resData = await insertRes.json();
+        const resText = await insertRes.text().catch(() => '');
+        let resData = {};
+        if (resText) {
+          try { resData = JSON.parse(resText); } catch (e) {}
+        }
 
         if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
           const ticketObj = {
@@ -1332,7 +1339,7 @@ export default {
             method: 'POST',
             headers: {
               ...getServiceRoleHeaders(),
-              'Prefer': 'resolution=merge-duplicates'
+              'Prefer': 'resolution=merge-duplicates,return=representation'
             },
             body: JSON.stringify(ticketObj)
           }).catch(() => {});
@@ -1605,7 +1612,20 @@ export default {
             },
             body: JSON.stringify(body)
           });
-          const resData = await insertRes.json();
+
+          const resText = await insertRes.text().catch(() => '');
+          let resData = {};
+          if (resText) {
+            try { resData = JSON.parse(resText); } catch (e) {}
+          }
+
+          if (!insertRes.ok) {
+            const errMsg = resData.message || resData.error || resData.details || resData.hint || (resText && resText.length < 200 ? resText : null) || `Supabase Fehler (${insertRes.status})`;
+            return new Response(JSON.stringify({ error: errMsg, message: errMsg, details: resData }), {
+              status: insertRes.status,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
 
           if (insertRes.ok && body.recipient_number === '11111111' && body.sender_number && body.sender_number !== '11111111') {
             await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
