@@ -16,7 +16,11 @@ export async function onRequestPost(context) {
   const { request, env } = context;
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const reqText = await request.text().catch(() => '');
+    let body = {};
+    if (reqText) {
+      try { body = JSON.parse(reqText); } catch (e) {}
+    }
     const { sender_number, encrypted_payload, message, user_id } = body;
 
     const supabaseUrl = env.SUPABASE_URL;
@@ -47,8 +51,11 @@ export async function onRequestPost(context) {
           }
         });
         if (userRes.ok) {
-          const userData = await userRes.json();
-          if (userData && userData.id) resolvedUserId = userData.id;
+          const userText = await userRes.text().catch(() => '');
+          if (userText) {
+            const userData = JSON.parse(userText);
+            if (userData && userData.id) resolvedUserId = userData.id;
+          }
         }
       } catch (e) {}
     }
@@ -68,7 +75,11 @@ export async function onRequestPost(context) {
       })
     });
 
-    const resData = await insertRes.json();
+    const resText = await insertRes.text().catch(() => '');
+    let resData = {};
+    if (resText) {
+      try { resData = JSON.parse(resText); } catch (e) {}
+    }
 
     // Ensure a support ticket record exists/updates for the user without error
     if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
@@ -89,7 +100,7 @@ export async function onRequestPost(context) {
           'apikey': serviceRoleKey,
           'Authorization': `Bearer ${serviceRoleKey}`,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates'
+          'Prefer': 'resolution=merge-duplicates,return=representation'
         },
         body: JSON.stringify(ticketObj)
       }).catch(() => {});

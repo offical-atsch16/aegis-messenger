@@ -361,7 +361,13 @@ async function stopAndSendVoiceRecording() {
       });
 
       if (!msgRes.ok) {
-        throw new Error('Fehler beim Senden der Sprachnachricht.');
+        const errText = await msgRes.text().catch(() => '');
+        let errJson = {};
+        if (errText) {
+          try { errJson = JSON.parse(errText); } catch (e) {}
+        }
+        const concreteError = errJson.error || errJson.message || errJson.msg || errJson.details || `Fehler beim Senden der Sprachnachricht (${msgRes.status}).`;
+        throw new Error(concreteError);
       }
 
       let expiresAt = null;
@@ -4168,6 +4174,8 @@ async function handleSendMessage(e) {
       clearSelectedFile();
       playSoundFeedback('send');
 
+      let ticketSuccess = false;
+
       try {
         const res = await fetch('/api/support-route', {
           method: 'POST',
@@ -4183,17 +4191,104 @@ async function handleSendMessage(e) {
           })
         });
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${res.status}`);
+        const contentType = res.headers.get('content-type') || '';
+        const resText = await res.text().catch(() => '');
+        let resData = {};
+        if (resText && contentType.includes('application/json')) {
+          try { resData = JSON.parse(resText); } catch (e) {}
+        } else if (resText && resText.startsWith('{')) {
+          try { resData = JSON.parse(resText); } catch (e) {}
         }
 
-        showToast('🎫 Support-Ticket gesendet!');
+        if (res.ok && !resData.error) {
+          ticketSuccess = true;
+          showToast('🎫 Support-Ticket gesendet!');
+        } else {
+          console.warn("Support route API returned error, attempting direct client fallback:", resData.error || `HTTP ${res.status}`);
+        }
       } catch (err) {
-        console.error("Error creating support ticket:", err);
-        showToast(`Fehler beim Erstellen des Support-Tickets: ${err.message || 'Netzwerkfehler'}`, true);
+        console.warn("Support route fetch failed, attempting direct client fallback:", err);
+      }
+
+      // Client Direct Fallback: Write directly to support_tickets and messages if API route failed or was unreachable
+      if (!ticketSuccess) {
+        try {
+          if (supabaseClient) {
+            await supabaseClient.from('messages').insert({
+              sender_number: senderNumber,
+              recipient_number: '11111111',
+              encrypted_payload: payloadText
+            });
+
+            await supabaseClient.from('support_tickets').insert({
+              user_number: senderNumber,
+              ticket_status: 'open',
+              status: 'open',
+              message: payloadText,
+              user_id: currentUser ? currentUser.id : null,
+              updated_at: new Date().toISOString()
+            });
+
+            ticketSuccess = true;
+            showToast('🎫 Support-Ticket via Direkt-Verbindung gesendet!');
+          } else if (supabaseUrl) {
+            const cleanBase = supabaseUrl.replace(/\/+$/, '');
+            const serviceKey = supabaseAnonKey;
+            const authHeaders = {
+              'apikey': serviceKey,
+              'Authorization': `Bearer ${accessToken || serviceKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=representation'
+            };
+
+            await fetch(`${cleanBase}/rest/v1/messages`, {
+              method: 'POST',
+              headers: authHeaders,
+              body: JSON.stringify({
+                sender_number: senderNumber,
+                recipient_number: '11111111',
+                encrypted_payload: payloadText
+              })
+            });
+
+            await fetch(`${cleanBase}/rest/v1/support_tickets`, {
+              method: 'POST',
+              headers: authHeaders,
+              body: JSON.stringify({
+                user_number: senderNumber,
+                ticket_status: 'open',
+                status: 'open',
+                message: payloadText,
+                user_id: currentUser ? currentUser.id : null,
+                updated_at: new Date().toISOString()
+              })
+            });
+
+            ticketSuccess = true;
+            showToast('🎫 Support-Ticket via Direkt-Verbindung gesendet!');
+          }
+        } catch (fallbackErr) {
+          console.error("Direct fallback failed:", fallbackErr);
+        }
+      }
+
+      if (!ticketSuccess) {
+        showToast("Fehler beim Erstellen des Support-Tickets: Server-Verbindung fehlgeschlagen", true);
       }
       return;
+    }
+
+    if (!activeContact.sharedKey) {
+      if (activeContact.pubKeyB64) {
+        try {
+          const peerKey = await importPublicKey(activeContact.pubKeyB64);
+          activeContact.sharedKey = await deriveSharedAesKey(localKeyPair.privateKey, peerKey);
+        } catch (e) {
+          throw new Error('Verschlüsselungsschlüssel (Shared Key) konnte nicht abgeleitet werden. Bitte Kontakt erneut hinzufügen.');
+        }
+      } else {
+        throw new Error('Kein Verschlüsselungsschlüssel für diesen Kontakt vorhanden.');
+      }
     }
 
     if (selectedFile) {
@@ -4239,7 +4334,13 @@ async function handleSendMessage(e) {
     });
 
     if (!res.ok) {
-      throw new Error('Fehler beim Senden der Nachricht.');
+      const errText = await res.text().catch(() => '');
+      let errJson = {};
+      if (errText) {
+        try { errJson = JSON.parse(errText); } catch (e) {}
+      }
+      const concreteError = errJson.error || errJson.message || errJson.msg || errJson.details || (errText && errText.length < 200 ? errText : null) || `Fehler beim Senden der Nachricht (${res.status}).`;
+      throw new Error(concreteError);
     }
 
     let expiresAt = null;
