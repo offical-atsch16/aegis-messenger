@@ -3840,7 +3840,6 @@ async function fetchAndProcessUnreadMessages() {
           for (const record of msgs) {
             await handleIncomingMessage(record);
           }
-          await fetch(`/api/messages?recipient_number=${num}`, { method: 'DELETE' });
         }
       }
     } catch (e) {
@@ -3850,12 +3849,7 @@ async function fetchAndProcessUnreadMessages() {
 }
 
 async function cleanupTemporaryUnreadMessages() {
-  const myNumbers = getMyAllNumbers();
-  for (const num of myNumbers) {
-    try {
-      await fetch(`/api/messages?recipient_number=${num}`, { method: 'DELETE' });
-    } catch (e) {}
-  }
+  // Messages remain persistent in Supabase until the 23:59 Server-Wipe
 }
 
 // --- ACCOUNT SETTINGS, DEACTIVATION, DELETE & BACKUP ---
@@ -4194,13 +4188,11 @@ async function handleSendMessage(e) {
         const contentType = res.headers.get('content-type') || '';
         const resText = await res.text().catch(() => '');
         let resData = {};
-        if (resText && contentType.includes('application/json')) {
-          try { resData = JSON.parse(resText); } catch (e) {}
-        } else if (resText && resText.startsWith('{')) {
+        if (resText) {
           try { resData = JSON.parse(resText); } catch (e) {}
         }
 
-        if (res.ok && !resData.error) {
+        if (res.ok && (resData.success || !resData.error)) {
           ticketSuccess = true;
           showToast('🎫 Support-Ticket gesendet!');
         } else {
@@ -4424,14 +4416,43 @@ function loadAndRenderChatHistory(contactNumber) {
   const history = getChatHistory(contactNumber);
   const now = Date.now();
 
+  // 1. Render local session history first
+  const renderedIds = new Set();
   history.forEach(msg => {
     if (msg.expiresAt && msg.expiresAt <= now) return;
+    if (msg.id) renderedIds.add(msg.id);
     appendMessageUI(msg, false);
 
     if (msg.expiresAt) {
       scheduleSelfDestruct(msg.id, contactNumber, msg.expiresAt - now);
     }
   });
+
+  // 2. Fetch daily persistent messages from Supabase DB to restore chat history
+  try {
+    const myNumbers = getMyAllNumbers();
+    const fetchPromises = [];
+
+    // Messages received by me from contact
+    myNumbers.forEach(myNum => {
+      fetchPromises.push(
+        fetch(`/api/messages?recipient_number=${myNum}`).then(r => r.ok ? r.json() : [])
+      );
+    });
+
+    const results = await Promise.all(fetchPromises);
+    const allDbMsgs = results.flat().filter(m => m && m.sender_number === contactNumber);
+
+    for (const record of allDbMsgs) {
+      if (record.id && !renderedIds.has(record.id)) {
+        await handleIncomingMessage(record);
+        renderedIds.add(record.id);
+      }
+    }
+  } catch (e) {
+    console.error("Error restoring chat history from Supabase:", e);
+  }
+
   container.scrollTop = container.scrollHeight;
 }
 
@@ -4772,9 +4793,6 @@ async function handleIncomingMessage(record) {
         const parsed = JSON.parse(decryptedText);
         if (parsed && parsed.type === 'call-signal') {
           await handleIncomingCallSignal(parsed);
-          if (record.id) {
-            fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
-          }
           return;
         } else if (parsed && parsed.type === 'group_chat' && parsed.groupId) {
           const groupMsgObj = {
@@ -4793,10 +4811,6 @@ async function handleIncomingMessage(record) {
             appendMessageUI(groupMsgObj, true);
           } else {
             showToast(`Neue E2EE Gruppennachricht in ${parsed.groupName || 'Gruppe'}!`);
-          }
-
-          if (record.id) {
-            fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
           }
           return;
         }
@@ -4819,10 +4833,6 @@ async function handleIncomingMessage(record) {
       appendMessageUI(msgObj, true);
     } else {
       showToast(`Neue E2EE Nachricht von ${contact.nickname || senderNumber}!`);
-    }
-
-    if (record.id) {
-      fetch(`/api/messages?id=${record.id}`, { method: 'DELETE' }).catch(() => {});
     }
   }
 }
