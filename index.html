@@ -245,7 +245,7 @@
       <!-- MOBILE TOP HEADER BAR -->
       <div class="mobile-bar">
         <div class="mobile-brand">AegisChat</div>
-        <div style="display: flex; gap: 4px;">
+        <div class="mobile-bar-actions">
           <button id="mobile-admin-btn" class="icon-btn hidden" title="Admin Dashboard">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 15L10 12L7 9M13 15H17M7.8 21H16.2C17.8802 21 18.7202 21 19.362 20.673C19.9265 20.3854 20.3854 19.9265 20.673 19.362C21 18.7202 21 17.8802 21 16.2V7.8C21 6.11984 21 5.27976 20.673 4.63803C20.3854 4.07354 19.9265 3.6146 19.362 3.32698C18.7202 3 17.8802 3 16.2 3H7.8C6.11984 3 5.27976 3 4.63803 3.32698C4.07354 3.6146 3.6146 4.07354 3.32698 4.63803C3 5.27976 3 6.11984 3 7.8V16.2C3 17.8802 3 18.7202 3.32698 19.362C3.6146 19.9265 4.07354 20.3854 4.63803 20.673C5.27976 21 6.11984 21 7.8 21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -293,8 +293,8 @@
         </div>
 
         <!-- LOCAL SEARCH BAR -->
-        <div class="search-bar-wrapper" style="padding: 8px 16px;">
-          <input type="text" id="sidebar-search-input" placeholder="🔍 Nachrichten & Kontakte suchen..." autocomplete="off" class="sender-dropdown" style="width: 100%;">
+        <div class="search-bar-wrapper">
+          <input type="text" id="sidebar-search-input" placeholder="🔍 Nachrichten & Kontakte suchen..." autocomplete="off" class="search-bar-input">
         </div>
 
         <!-- ADD CONTACT & CREATE GROUP SECTION -->
@@ -324,11 +324,11 @@
         </div>
 
         <!-- GROUPS LIST SECTION -->
-        <div class="section-title" style="margin-top: 10px;">
+        <div class="section-title section-title-spaced">
           <span>Deine Gruppenräume</span>
         </div>
 
-        <ul id="groups-list" class="contacts-list" style="max-height: 140px; min-height: 50px;">
+        <ul id="groups-list" class="contacts-list groups-list-container">
           <!-- Dynamically populated group rooms -->
         </ul>
 
@@ -441,7 +441,7 @@
         </div>
 
         <!-- MESSAGES FEED -->
-        <div style="position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="messages-viewport-wrapper">
           <div id="messages-container" class="messages-container hidden">
             <!-- Dynamically appended chat messages -->
           </div>
@@ -480,18 +480,20 @@
         <!-- MESSAGE INPUT FORM -->
         <form id="send-message-form" class="message-input-area hidden">
           <input type="file" id="file-input" class="hidden">
-          <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto anhängen">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>
-          <button type="button" id="stego-btn" class="icon-btn stego-btn" title="Steganografie-Modus (Nachricht in Bild verstecken)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><circle cx="7.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="12" cy="7.5" r=".5" fill="currentColor"/><circle cx="16.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="15.5" cy="15.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="15.5" r=".5" fill="currentColor"/></svg>
-          </button>
-          <button type="button" id="view-once-toggle-btn" class="icon-btn view-once-btn" title="View Once (Einmal-Ansicht aktivieren / deaktivieren)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-size="12" font-weight="800" text-anchor="middle" fill="currentColor" stroke="none">1</text></svg>
-          </button>
-          <button type="button" id="mic-btn" class="icon-btn mic-btn" title="Sprachnachricht aufnehmen">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </button>
+          <div class="input-actions-left">
+            <button type="button" id="attach-file-btn" class="icon-btn attach-btn" title="Datei / Foto anhängen">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <button type="button" id="stego-btn" class="icon-btn stego-btn" title="Steganografie-Modus (Nachricht in Bild verstecken)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><circle cx="7.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="12" cy="7.5" r=".5" fill="currentColor"/><circle cx="16.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="15.5" cy="15.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="15.5" r=".5" fill="currentColor"/></svg>
+            </button>
+            <button type="button" id="view-once-toggle-btn" class="icon-btn view-once-btn" title="View Once (Einmal-Ansicht aktivieren / deaktivieren)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-size="12" font-weight="800" text-anchor="middle" fill="currentColor" stroke="none">1</text></svg>
+            </button>
+            <button type="button" id="mic-btn" class="icon-btn mic-btn" title="Sprachnachricht aufnehmen">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            </button>
+          </div>
           <input type="text" id="message-input" placeholder="Schreibe eine sichere E2EE Nachricht..." autocomplete="off">
           <button type="submit" id="send-btn" class="btn primary-btn send-btn" title="Nachricht senden" aria-label="Nachricht senden">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
