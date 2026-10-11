@@ -81,6 +81,8 @@ export async function onRequestPost(context) {
       try { resData = JSON.parse(resText); } catch (e) {}
     }
 
+    let ticketId = null;
+
     // Ensure a support ticket record exists/updates for the user without error
     if (senderNumberClean && senderNumberClean !== '11111111' && senderNumberClean !== '00000000') {
       const ticketObj = {
@@ -94,7 +96,7 @@ export async function onRequestPost(context) {
         ticketObj.user_id = resolvedUserId;
       }
 
-      await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
+      const ticketRes = await fetch(`${cleanBaseUrl}/rest/v1/support_tickets`, {
         method: 'POST',
         headers: {
           'apikey': serviceRoleKey,
@@ -103,10 +105,24 @@ export async function onRequestPost(context) {
           'Prefer': 'resolution=merge-duplicates,return=representation'
         },
         body: JSON.stringify(ticketObj)
-      }).catch(() => {});
+      }).catch(() => null);
+
+      if (ticketRes && ticketRes.ok) {
+        const ticketText = await ticketRes.text().catch(() => '');
+        if (ticketText) {
+          try {
+            const tData = JSON.parse(ticketText);
+            if (Array.isArray(tData) && tData.length > 0) {
+              ticketId = tData[0].id || tData[0].user_number;
+            } else if (tData && tData.id) {
+              ticketId = tData.id;
+            }
+          } catch (e) {}
+        }
+      }
     }
 
-    return new Response(JSON.stringify({ success: true, data: resData }), {
+    return new Response(JSON.stringify({ success: true, ticketId: ticketId || senderNumberClean, data: resData }), {
       status: 200,
       headers: corsHeaders
     });
