@@ -1,0 +1,169 @@
+================================================================================
+AEGISCHAT — TECHNISCHE SYSTEMARCHITEKTUR & DOKUMENTATION
+(Detaillierte Systemerklärung für KI-Modelle & Entwickler)
+================================================================================
+
+1. HIGH-LEVEL SYSTEMÜBERSICHT & PHILOSOPHIE
+--------------------------------------------------------------------------------
+AegisChat ist eine hochsichere, datenschutzzentrierte Kommunikationsplattform
+nach dem Zero-Knowledge-Prinzip. Private Schlüssel, Klartext-Nachrichten und
+unverschlüsselte Mediendateien verbleiben ausschließlich im Arbeitsspeicher (RAM)
+oder verschlüsselten lokalen Session-Speicher (sessionStorage) des Browsers/Clients.
+
+Der Server und der Proxy-Worker fungieren rein als blinde Relais-Knotenpunkte
+(Ephemeral Relay Nodes). Sie haben zu keinem Zeitpunkt Zugriff auf den Klartext,
+da alle Daten vor dem Verlassen des Client-Browsers Ende-zu-Ende verschlüsselt
+(E2EE) werden.
+
+Zudem verfolgt das System ein striktes Minimal-Data-Prinzip:
+- Keine Pflicht zur Angabe von Klarnamen, E-Mail-Adressen oder Telefonnummern.
+- Nutzeridentifikation erfolgt über zufällige 8-stellige IDs (z. B. "88888888")
+  oder temporäre Einweg-Nummern (Burner IDs).
+- Automatische Mitternachts-Datenbereinigung (Wipe um 23:59 UTC/Berlin): Alle
+  serverseitigen Chatnachrichten und Upload-Dateien werden unwiderruflich gelöscht.
+
+
+2. VOLLSTÄNDIGER TECH-STACK
+--------------------------------------------------------------------------------
+- Frontend Client: HTML5, CSS3 (Modern Responsive UI mit Cyberpunk/Dark Aesthetic),
+  Vanilla JavaScript (Zero-Framework / Zero-Dependencies, `app.js`).
+- Kryptografie: W3C Browser-Native WebCrypto API (SubtleCrypto).
+- Storage & DB Backend: Supabase (Postgres Database, Auth, Realtime WebSocket CDC,
+  Supabase Object Storage `chat-attachments`).
+- Proxy-Layer & Serverless Worker: Cloudflare Pages Worker (`_worker.js`) für Zero-Secrets
+  Frontend-Architecture, VAPID Web Push Notifications (RFC 8291/8292), Rate Limiting
+  und Homoglyph Anti-Spoofing.
+- Fallback Server: Standalone Node.js HTTP & Native WebSocket Relay Server (`server.js`,
+  Zero-Dependency).
+- P2P Audio/Video Communication: WebRTC (DTLS/SRTP) mit STUN-Servern
+  (`stun:stun.l.google.com:19302`) und Web Audio API BiquadFilter Processing für Stimmverfremdung.
+- PWA & Push Notifications: Service Worker (`sw.js`) & Web Push Encryption.
+
+
+3. ENDE-ZU-ENDE-VERSCHLÜSSELUNG (E2EE) & SCHLÜSSELMANAGEMENT
+--------------------------------------------------------------------------------
+AegisChat nutzt modernste kryptografische Primitive der browsernativen WebCrypto API:
+
+a) Schlüsselpaar-Generierung:
+   - Jedes Nutzerkonto generiert lokal im Browser ein Elliptic Curve Diffie-Hellman
+     (ECDH) Schlüsselpaar über die P-256 Kurve (`secp256r1`).
+   - Der Öffentliche Schlüssel (Public Key) wird als JWK (Base64-kodiert) im
+     öffentlichen Profil (`public.profiles.public_key`) hinterlegt, damit andere
+     Nutzer ihn abrufen können.
+
+b) Private Key Protection (PBKDF2 + AES-GCM):
+   - Der Private Schlüssel (Private Key) verlässt das Gerät NIEMALS im Klartext.
+   - Beim Erstellen des Kontos wird der Private Key lokal via PBKDF2 (100.000 Iterationen,
+     SHA-256, 16-Byte Salt) aus dem Passwort abgeleitet und mit AES-GCM-256 verschlüsselt.
+   - Der verschlüsselte String (`encrypted_private_key`) wird in Supabase gespeichert.
+   - Beim Login holt der Client diesen String, entschlüsselt ihn lokal mit dem Passwort
+     und hält das Schlüsselobjekt ausschließlich in der aktiven Browser-Session.
+
+c) ECDH Shared Secret & Message Encryption (AES-GCM-256):
+   - Um Nutzer A eine Nachricht an Nutzer B zu senden:
+     1. Client A ruft den Public Key von Nutzer B über `/api/profiles/resolve` ab.
+     2. Client A leitet mittels `crypto.subtle.deriveKey` und ECDH P-256 einen
+        gemeinsamen symmetrischen 256-Bit Schlüssel (Shared AES-GCM Key) ab.
+     3. Jede Nachricht erhält ein frisches 12-Byte Initialisierungs-Array (IV).
+     4. Der Klartext wird mit AES-GCM-256 verschlüsselt und als JSON-Objekt
+        (`{ ivB64, ciphertextB64 }`) übertragen.
+     5. Nutzer B leitet mit seinem Private Key und A's Public Key exakt denselben
+        Shared AES-GCM Key ab und entschlüsselt die Nachricht.
+
+
+4. ARCHITEKTUR DES CLOUDFLARE WORKERS (`_worker.js`)
+--------------------------------------------------------------------------------
+Der Cloudflare Worker fungiert als geschützter Proxy zwischen dem Browser und Supabase:
+
+- Zero-Secrets Frontend: Supabase Service Keys verbleiben sicher in den Cloudflare
+  Environment Variables (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`).
+- API Routing (`/api/*`):
+  - `/api/health`: Prüft Backend-Erreichbarkeit und liefert Konfiguration.
+  - `/api/auth/register` & `/api/auth/login`: Authentifizierung über synthetische
+    E-Mails (`<username>@aegis.internal`).
+  - `/api/profiles/resolve`: Löst 8-stellige Haupt-IDs, Einweg-Nummern oder Usernamen
+    in Public Keys und Profil-Metadaten auf.
+  - `/api/messages`: Speichert und liefert verschlüsselte Nachrichten.
+  - `/api/upload` & `/api/files/*`: Verarbeitet AES-GCM verschlüsselte Datei-Uploads.
+  - `/api/files/burn`: Löscht View-Once Medien unwiderruflich aus dem Storage Bucket.
+  - `/api/admin/*`: Ermöglicht Admin-Statistiken, Invite-Code-Erstellung, Wartungsmodus
+    und Account-Einfrieren (`is_disabled`).
+  - `/api/push/subscribe`: Verarbeitet VAPID Web Push Subscriptions.
+- Homoglyph Anti-Spoofing & Username Blacklist:
+  - Verhindert Identity Spoofing (z.B. Fälschung von "admin" oder "support") durch
+    Unicode NFKD-Normalisierung, Homoglyphen-Mapping (kyrillisch/griechisch -> latin)
+    und Leet-Speak Neutralisierung.
+- VAPID Web Push Encryption (RFC 8291 / RFC 8292):
+  - Implementiert HKDF-Extract/Expand und ECDH Payload Encryption direkt im Worker
+    über WebCrypto, um Push-Benachrichtigungen bei geschlossener App abzuliefern.
+
+
+5. DATENBANK-SCHEMA & SUPABASE INTEGRATION (`schema.sql`)
+--------------------------------------------------------------------------------
+Die Supabase PostgreSQL Datenbank umfasst folgende Tabellen:
+
+1. `profiles`: Speichert User-ID (UUID), Username, 8-stellige Haupt-ID (`main_number`),
+   Public Key, verschlüsselten Private Key, Rolle (`admin`/`user`), Konto-Status (`is_disabled`).
+2. `disposable_numbers`: Temporäre Burner-Nummern mit Verfallsdatum (`expires_at`).
+3. `user_contacts`: Synchrone Kontaktliste und lokale Spitznamen pro Nutzer.
+4. `messages`: Temporäre E2EE Nachrichten-Payloads (`sender_number`, `recipient_number`,
+   `encrypted_payload`, `created_at`).
+5. `support_tickets`: Verfolgt offene Support-Anfragen an die System-ID `11111111`.
+6. `system_settings`: Globale Key-Value Konfiguration (z. B. Wartungsmodus, Banners).
+7. `invite_codes`: Einladungscodes mit Nutzungslimit.
+8. `push_subscriptions`: JSON Web Push Subscription Daten.
+9. Storage Bucket `chat-attachments`: Speichert binäre, clientseitig verschlüsselte
+   Dateien (`audios/{uuid}.bin` und `files/{uuid}.bin`).
+
+Row Level Security (RLS) & Realtime:
+- RLS ist auf allen Tabellen aktiviert.
+- PostgreSQL Realtime CDC (`REPLICA IDENTITY FULL`) sendet WebSocket-Updates
+  bei neuen Nachrichten in Echtzeit an den Client.
+
+
+6. WEBRTC AUDIO/VIDEO CALLS, FULL-MESH GRPPENANRUFE & VOICE MASKING
+--------------------------------------------------------------------------------
+a) Peer-to-Peer Anrufe (1-zu-1):
+   - Der Verbindungsaufbau nutzt WebRTC `RTCPeerConnection` mit STUN-Servern.
+   - Das Signaling (Offer, Answer, ICE-Candidates) erfolgt Ende-zu-Ende verschlüsselt
+     über den Supabase Realtime WebSocket Kanal.
+   - Die Medienströme (Audio/Video) fließen über abhörsichere DTLS/SRTP Direktverbindungen.
+
+b) P2P Full-Mesh Gruppenanrufe:
+   - Gruppenräume verwalten multiple P2P Peer Connections zu allen Teilnehmern gleichzeitig.
+   - Das UI rendert ein dynamisches Multi-Stream Video-Grid (`.mesh-video-grid`).
+
+c) Voice Masking (Stimmverfremdung):
+   - Nutzt die Web Audio API, um Mikrofon-Audiosignale in Echtzeit durch eine
+     `BiquadFilterNode` Filterkette (LowShelf, HighPass, Peaking Filters) zu leiten.
+   - Der verfremdete Audio-Track ersetzt den Original-Track auf der PeerConnection
+     mittels `RTCRtpSender.replaceTrack()`.
+
+
+7. SPEZIAL- & ANTI-FORENSIK-FEATURES
+--------------------------------------------------------------------------------
+- Panic PIN / Duress Password:
+  - Wird beim Login das Panik-Passwort eingegeben, wird die Session ungültig und
+    alle lokalen Speicher (sessionStorage & localStorage) werden geräuschlos gelöscht.
+- Dead Man's Switch (Inaktivitäts-Auto-Zerstörung):
+  - Überwacht Nutzerinaktivität (z. B. 24h/48h/7d). Bei Überschreitung werden alle
+    Schlüssel und Kontakte lokal unwiderruflich gelöscht.
+- View-Once Medien (Einmal-Ansicht & Burning):
+  - Empfangene Einmal-Medien werden nach dem ersten Betrachten/Abspielen lokal per
+    `URL.revokeObjectURL()` zerstört und serverseitig über `/api/files/burn` aus dem
+    Storage Bucket gelöscht.
+- HTML5 Canvas LSB-Steganografie:
+  - Ermöglicht das Verstecken verschlüsselter Nachrichten in den niedrigstwertigen
+    Bits (Least Significant Bits) von PNG-Bildern.
+- Dynamic Message Padding:
+  - Füllt Nachrichten-Payloads vor der Verschlüsselung auf feste Blockgrößen auf,
+    um Größenanalysen der Datenpakete zu verhindern.
+- Background Dummy Traffic:
+  - Generiert auf Wunsch zufälligen Rauschen-Datenverkehr, um Verkehrsanalysen zu erschweren.
+- Dynamisches Wasserzeichen (Anti-Leak Protection):
+  - Blendet ein fälschungssicheres Wasserzeichen mit User-ID und Echtzeit-Zeitstempel
+    über dem Chat-Viewport ein.
+- System Support Route (ID `11111111`):
+  - Eine einheitliche 8-stellige ID für Support-Anfragen. Nachrichten an `11111111`
+    werden optimistisch gerendert und direkt an `/api/support-route` übermittelt.
+================================================================================
